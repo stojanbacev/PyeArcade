@@ -1,9 +1,11 @@
 import React, { useState } from 'react';
 import { Gamepad2, Info, X, Play } from 'lucide-react';
 import NeonRecall from './games/NeonRecall/NeonRecall';
+import SwipeStrike from './games/SwipeStrike/SwipeStrike';
 
 const GAME_COMPONENTS = {
   'neon-recall': NeonRecall,
+  'swipe-strike': SwipeStrike,
 };
 
 export default function App() {
@@ -17,6 +19,20 @@ export default function App() {
       tagline: 'Memory Sequence',
       description: 'Watch the light sequence on the physical board and repeat it using your phone. The sequences get longer every round!',
       colors: ['bg-yellow-400', 'bg-green-500', 'bg-pink-500', 'bg-blue-500']
+    },
+    {
+      id: 'swipe-strike',
+      title: 'Swipe Strike',
+      tagline: 'Pattern Unlock',
+      description: 'Swipe to connect the nodes in the correct pattern. Speed and accuracy are key to unlocking the high score!',
+      colors: ['bg-pink-500', 'bg-cyan-400'],
+      renderIcon: () => (
+        <div className="grid grid-cols-3 gap-2 bg-gray-900/50 p-2 rounded-lg border border-gray-700">
+          {[...Array(9)].map((_, i) => (
+            <div key={i} className={`w-3 h-3 rounded-full ${[0, 4, 8].includes(i) ? 'bg-pink-500 shadow-[0_0_8px_#ec4899]' : 'bg-cyan-400/30'}`}></div>
+          ))}
+        </div>
+      )
     }
   ];
 
@@ -78,7 +94,7 @@ export default function App() {
               <p className="text-gray-400 text-sm">{game.tagline}</p>
             </div>
             <div className="flex gap-3 z-10 relative">
-              {game.colors.map((color, i) => (
+              {game.renderIcon ? game.renderIcon() : game.colors.map((color, i) => (
                 <div key={i} className={`w-6 h-6 rounded-full ${color} shadow-[0_0_8px_currentColor] border border-white/10`}></div>
               ))}
             </div>

@@ -17,7 +17,7 @@ export default function App() {
       id: 'neon-recall',
       title: 'Neon Recall',
       tagline: 'Memory Sequence',
-      description: 'Watch the light sequence on the physical board and repeat it using your phone. The sequences get longer every round!',
+      description: 'Watch the light sequence on the physical board and repeat it using your phone. You have 20 seconds per turn!',
       colors: ['bg-yellow-400', 'bg-green-500', 'bg-pink-500', 'bg-blue-500']
     },
     {

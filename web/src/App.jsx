@@ -8,33 +8,91 @@ const GAME_COMPONENTS = {
   'swipe-strike': SwipeStrike,
 };
 
+const GAME_TEMPLATES = {
+  'neon-recall': {
+    title: 'Neon Recall',
+    tagline: 'Memory Sequence',
+    description: 'Watch the light sequence on the physical board and repeat it using your phone. You have 20 seconds per turn!',
+    colors: ['bg-yellow-400', 'bg-green-500', 'bg-pink-500', 'bg-blue-500']
+  },
+  'swipe-strike': {
+    title: 'Swipe Strike',
+    tagline: 'Pattern Unlock',
+    description: 'Swipe to connect the nodes in the correct pattern. Speed and accuracy are key to unlocking the high score!',
+    colors: ['bg-pink-500', 'bg-cyan-400'],
+    renderIcon: () => (
+      <div className="grid grid-cols-3 gap-2 bg-gray-900/50 p-2 rounded-lg border border-gray-700">
+        {[...Array(9)].map((_, i) => (
+          <div key={i} className={`w-3 h-3 rounded-full ${[0, 4, 8].includes(i) ? 'bg-pink-500 shadow-[0_0_8px_#ec4899]' : 'bg-cyan-400/30'}`}></div>
+        ))}
+      </div>
+    )
+  }
+};
+
 export default function App() {
   const [currentView, setCurrentView] = useState('home');
   const [selectedGame, setSelectedGame] = useState(null);
+  const [activeBoards, setActiveBoards] = useState([]);
+  const [loading, setLoading] = useState(true);
 
-  const games = [
-    {
-      id: 'neon-recall',
-      title: 'Neon Recall',
-      tagline: 'Memory Sequence',
-      description: 'Watch the light sequence on the physical board and repeat it using your phone. You have 20 seconds per turn!',
-      colors: ['bg-yellow-400', 'bg-green-500', 'bg-pink-500', 'bg-blue-500']
-    },
-    {
-      id: 'swipe-strike',
-      title: 'Swipe Strike',
-      tagline: 'Pattern Unlock',
-      description: 'Swipe to connect the nodes in the correct pattern. Speed and accuracy are key to unlocking the high score!',
-      colors: ['bg-pink-500', 'bg-cyan-400'],
-      renderIcon: () => (
-        <div className="grid grid-cols-3 gap-2 bg-gray-900/50 p-2 rounded-lg border border-gray-700">
-          {[...Array(9)].map((_, i) => (
-            <div key={i} className={`w-3 h-3 rounded-full ${[0, 4, 8].includes(i) ? 'bg-pink-500 shadow-[0_0_8px_#ec4899]' : 'bg-cyan-400/30'}`}></div>
-          ))}
-        </div>
-      )
+  // Fetch active boards from API
+  React.useEffect(() => {
+    const fetchBoards = async () => {
+      try {
+        const response = await fetch('games/NeonRecall/api.php?action=list_boards');
+        const data = await response.json();
+        setActiveBoards(Array.isArray(data) ? data : []);
+      } catch (err) {
+        console.error("Failed to fetch boards:", err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchBoards();
+    const interval = setInterval(fetchBoards, 5000); // Refresh every 5s
+    return () => clearInterval(interval);
+  }, []);
+
+  // Handle game selection with online check
+  const handleGameSelect = async (game) => {
+    try {
+      // Perform strict active check (must be seen in last 2 seconds)
+      const response = await fetch(`games/NeonRecall/api.php?action=check_status&target=${game.boardId}`);
+      const statusData = await response.json();
+      
+      if (statusData.status === 'online') {
+        setSelectedGame(game);
+        setCurrentView('instructions');
+      } else {
+        alert("Board is offline or unresponsive! (Last seen > 2s ago)");
+        // Trigger a list refresh to remove it if it's truly gone
+        const listResponse = await fetch('games/NeonRecall/api.php?action=list_boards');
+        const listData = await listResponse.json();
+        setActiveBoards(Array.isArray(listData) ? listData : []);
+      }
+    } catch (err) {
+      console.error("Connection error checking board status", err);
+      alert("Could not verify board status.");
     }
-  ];
+  };
+
+  const games = activeBoards.map(board => {
+    const templateId = board.game; // 'neon-recall' or 'swipe-strike'
+    const template = GAME_TEMPLATES[templateId] || GAME_TEMPLATES['neon-recall'];
+    
+    // Extract number suffix (e.g. 'neon_recall_1' -> '1')
+    const suffix = board.id.split('_').pop();
+    
+    return {
+      ...template,
+      id: board.id, // Unique ID (neon_recall_1)
+      componentId: templateId,
+      boardId: board.id,
+      title: `${template.title} - ${suffix}`, 
+    };
+  });
 
   const enterGameMode = async () => {
     try {
@@ -79,13 +137,19 @@ export default function App() {
 
       <main className="flex-1 flex flex-col gap-4 overflow-y-auto min-h-0 px-6 pb-4">
         <h2 className="text-xl font-bold mb-2">Select a Game</h2>
+        {loading && <div className="text-center text-gray-500 py-8">Scanning for active boards...</div>}
+        
+        {!loading && games.length === 0 && (
+           <div className="text-center py-8">
+              <p className="text-gray-400 mb-2">No active game boards found.</p>
+              <p className="text-xs text-gray-600">Make sure boards are powered on and connected to WiFi.</p>
+           </div>
+        )}
+
         {games.map((game) => (
           <button
             key={game.id}
-            onClick={() => {
-              setSelectedGame(game);
-              setCurrentView('instructions');
-            }}
+            onClick={() => handleGameSelect(game)}
             style={{ backgroundColor: 'black' }}
             className="group relative overflow-hidden bg-black rounded-2xl p-6 text-left border border-gray-700 transition-all active:scale-95 flex justify-between items-center hover:border-cyan-500 hover:shadow-[0_0_20px_rgba(0,229,255,0.2)] text-white shrink-0"
           >
@@ -152,7 +216,8 @@ export default function App() {
   );
 
   const renderGameplay = () => {
-    const GameComponent = GAME_COMPONENTS[selectedGame?.id];
+    // Look up component by componentId (e.g. 'neon-recall') not the unique instance id ('neon-recall-1')
+    const GameComponent = GAME_COMPONENTS[selectedGame?.componentId];
     
     if (!GameComponent) {
       return (
@@ -168,7 +233,7 @@ export default function App() {
       );
     }
 
-    return <GameComponent onExit={exitGameMode} />;
+    return <GameComponent onExit={exitGameMode} boardId={selectedGame?.boardId} />;
   };
 
   return (

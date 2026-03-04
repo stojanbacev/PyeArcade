@@ -4,12 +4,11 @@ import confetti from 'canvas-confetti';
 
 // --- CONFIGURATION ---
 const API_URL = 'games/NeonRecall/api.php'; // Relative to the base index.html
-const BOARD_ID = 'neon_recall_1';
 const FLASH_DURATION = 500; // ms per flash
 const PAUSE_DURATION = 250; // ms between flashes
 const INPUT_TIMEOUT = 20000; // 20s to press a button before game over
 
-export default function NeonRecall({ onExit }) {
+export default function NeonRecall({ onExit, boardId = 'neon_recall_1' }) {
   const [score, setScore] = useState(0);
   const [gameState, setGameState] = useState('idle'); // idle, showing_pattern, waiting_for_player, success, fail
   const [gameSequence, setGameSequence] = useState([]);
@@ -46,7 +45,7 @@ export default function NeonRecall({ onExit }) {
   const sendGameState = async (state, pattern = []) => {
     try {
       // We don't await this to block UI, just fire and forget (or log error)
-      fetch(`${API_URL}?board=${BOARD_ID}`, {
+      fetch(`${API_URL}?board=${boardId}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

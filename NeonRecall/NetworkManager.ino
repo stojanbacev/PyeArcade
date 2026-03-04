@@ -16,6 +16,14 @@ void netMgr_handleRoot() {
   html += "<h2>WiFi Setup</h2>";
   html += "<form action='/save' method='POST'>";
   
+  // Board ID Input
+  netMgr_preferences.begin("pye_config", true);
+  String currentBoardId = netMgr_preferences.getString("boardId", "neon_recall_1");
+  netMgr_preferences.end();
+  
+  html += "<label>Board ID:</label><br>";
+  html += "<input type='text' name='boardId' value='" + currentBoardId + "' placeholder='e.g. neon_recall_2'><br>";
+  
   // Scan for networks
   int n = WiFi.scanNetworks();
   if (n == 0) {
@@ -42,35 +50,42 @@ void netMgr_handleRoot() {
 void netMgr_handleSave() {
   String ssid = netMgr_webServer.arg("ssid");
   String password = netMgr_webServer.arg("password");
+  String newBoardId = netMgr_webServer.arg("boardId");
   
-  if (ssid.length() > 0) {
+  if (ssid.length() > 0 && newBoardId.length() > 0) {
     netMgr_preferences.begin("pye_config", false);
     netMgr_preferences.putString("ssid", ssid);
     netMgr_preferences.putString("password", password);
+    netMgr_preferences.putString("boardId", newBoardId);
     netMgr_preferences.end();
     
     String html = netMgr_htmlHeader;
-    html += "<h2>Saved!</h2><p>Credentials saved. Rebooting...</p></body></html>";
+    html += "<h2>Saved!</h2><p>Credentials & ID saved. Rebooting...</p></body></html>";
     netMgr_webServer.send(200, "text/html", html);
     
     delay(2000);
     ESP.restart();
   } else {
-    netMgr_webServer.send(400, "text/plain", "SSID missing");
+    netMgr_webServer.send(400, "text/plain", "SSID or Board ID missing");
   }
 }
 
 /**
  * setupNetwork
- * @param boardId The unique ID for this board (used for AP name if needed)
+ * @param boardId [IN/OUT] The unique ID for this board. Passed as default, updated if found in preferences.
  * @param onConnecting Callback function to run repeatedly while trying to connect (animation)
  * @param onSetupMode Callback function to run once when entering setup mode (AP mode)
  */
-void setupNetwork(String boardId, void (*onConnecting)(), void (*onSetupMode)()) {
+void setupNetwork(String &boardId, void (*onConnecting)(), void (*onSetupMode)()) {
   netMgr_preferences.begin("pye_config", true); // Read-only mode first
   String ssid = netMgr_preferences.getString("ssid", "");
   String password = netMgr_preferences.getString("password", "");
+  String savedBoardId = netMgr_preferences.getString("boardId", "");
   netMgr_preferences.end();
+  
+  if (savedBoardId.length() > 0) {
+     boardId = savedBoardId;
+  }
 
   WiFi.mode(WIFI_STA);
   

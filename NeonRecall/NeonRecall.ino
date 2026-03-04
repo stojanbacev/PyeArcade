@@ -62,7 +62,7 @@ uint32_t getJewelColor(int jewelIndex);
 void runAttractMode(unsigned long now);
 
 // Forward declarations for Network Manager
-void setupNetwork(String boardId, void (*onConnecting)(), void (*onSetupMode)());
+void setupNetwork(String &boardId, void (*onConnecting)(), void (*onSetupMode)());
 
 // Forward declarations
 void runStartingAnimation(unsigned long now);

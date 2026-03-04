@@ -3,6 +3,7 @@
 #include <WiFiClientSecure.h>
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
+#include <esp_task_wdt.h> // Include WDT
 
 // --- CONFIGURATION ---
 #define LED_PIN    25   
@@ -10,10 +11,10 @@
 #define LEDS_PER_JEWEL 8 
 #define LED_COUNT  (NUM_JEWELS * LEDS_PER_JEWEL) 
 
-// Network Settings
-const char* ssid = "Bacev";
-const char* password = "negorci03";
-const char* apiUrl = "https://www.pyeclub.com/pyearcade/games/NeonRecall/api.php?board=neon_recall_1";
+// Game Settings
+String boardId = "neon_recall_1";
+String apiUrlBase = "https://www.pyeclub.com/pyearcade/games/NeonRecall/api.php?board=";
+String fullApiUrl = ""; // Populated in setup
 
 // Create the pixel object
 Adafruit_NeoPixel strip(LED_COUNT, LED_PIN, NEO_GRB + NEO_KHZ800);
@@ -60,6 +61,9 @@ void playPattern(int* pattern, int length);
 uint32_t getJewelColor(int jewelIndex);
 void runAttractMode(unsigned long now);
 
+// Forward declarations for Network Manager
+void setupNetwork(String boardId, void (*onConnecting)(), void (*onSetupMode)());
+
 // Forward declarations
 void runStartingAnimation(unsigned long now);
 void runSuccessAnimation(unsigned long now);
@@ -70,6 +74,32 @@ void runSnakeTick(unsigned long now, int speedDelay);
 void runPopcornTick(unsigned long now, int speedDelay);
 void runBreathingTick(unsigned long now, int speedDelay);
 
+// --- CALLBACKS FOR NETWORK MANAGER ---
+void onConnectingCallback() {
+  // Pulse Blue/White while connecting
+  static int b = 0;
+  static int dir = 5;
+  b += dir;
+  if (b >= 255 || b <= 0) dir = -dir;
+  if (b < 0) b = 0;
+  if (b > 255) b = 255;
+  
+  for(int i=0; i<LED_COUNT; i++) {
+     strip.setPixelColor(i, strip.Color(b, b, b)); // Pulse White
+  }
+  strip.show();
+  delay(10);
+}
+
+void onSetupModeCallback() {
+  // Keep all LEDs ON (dimmed)
+  strip.setBrightness(20); // Low brightness for AP mode to save power
+  for(int i=0; i<LED_COUNT; i++) {
+     strip.setPixelColor(i, strip.Color(255, 255, 255));
+  }
+  strip.show();
+}
+
 // --- NETWORK TASK ---
 void networkTask(void * pvParameters) {
   WiFiClientSecure client;
@@ -79,7 +109,7 @@ void networkTask(void * pvParameters) {
 
   for(;;) {
     if (WiFi.status() == WL_CONNECTED) {
-      http.begin(client, apiUrl);
+      http.begin(client, fullApiUrl.c_str());
       
       int httpResponseCode = http.GET();
       if (httpResponseCode > 0) {
@@ -126,37 +156,46 @@ void networkTask(void * pvParameters) {
 
 void setup() {
   Serial.begin(115200);
+  delay(100);
+  
+  /* REMOVED CUSTOM WDT CODE TO RULE OUT INIT ISSUES
+  // Configure Watchdog
+  // If already initialized, we need to deinit first to change config
+  if (esp_task_wdt_status(NULL) == ESP_OK) {
+      esp_task_wdt_deinit();
+  }
+  
+  esp_task_wdt_config_t wdt_config = {
+      .timeout_ms = 60000,
+      .idle_core_mask = (1 << 0) | (1 << 1),    
+      .trigger_panic = true
+  };
+  esp_task_wdt_init(&wdt_config);
+  esp_task_wdt_add(NULL); 
+  */
   
   stateMutex = xSemaphoreCreateMutex();
   
   strip.begin();           
   strip.show();            
-  strip.setBrightness(100); 
+  strip.setBrightness(255); // MAX BRIGHTNESS for daylight visibility 
 
   // Initialize Colors
   colorWhite  = strip.Color(255, 255, 255);
   colorOff    = strip.Color(0, 0, 0);
 
-  // Connect to WiFi
-  WiFi.mode(WIFI_STA);
-  Serial.print("Connecting to WiFi SSID: ");
-  Serial.println(ssid);
-  WiFi.begin(ssid, password);
-  
-  int attempts = 0;
-  while (WiFi.status() != WL_CONNECTED && attempts < 20) {
-    animationPulseColor(colorWhite, 10);
-    delay(500);
-    Serial.print(".");
-    attempts++;
-  }
-  
+  // Construct API URL
+  fullApiUrl = apiUrlBase + boardId;
+  Serial.print("API URL: ");
+  Serial.println(fullApiUrl);
+
+  // Setup Network (Credentials, Connect, or AP Mode)
+  // This function will block for 30s trying to connect, or enter an infinite loop if AP mode is triggered.
+  setupNetwork(boardId, onConnectingCallback, onSetupModeCallback);
+
   if (WiFi.status() == WL_CONNECTED) {
-    Serial.println("\nWiFi Connected!");
+    Serial.println("WiFi Connected! Starting Game...");
     animationFlashColor(colorWhite, 3, 100);
-  } else {
-    Serial.println("\nFailed to connect.");
-    animationFlashColor(strip.Color(255, 0, 0), 5, 200);
   }
 
   // Start Network Task
@@ -457,8 +496,8 @@ void runPopcornTick(unsigned long now, int speedDelay) {
 }
 
 void runBreathingTick(unsigned long now, int speedDelay) {
-  // animStep: brightness 0->100->0
-  // animSubStep: direction (1 or -1)
+  // animStep: brightness 0->255->0
+  // animSubStep: direction (5 or -5)
   
   if (animSubStep == 0) { 
      animStep = 0; 
@@ -473,8 +512,8 @@ void runBreathingTick(unsigned long now, int speedDelay) {
      
      animStep += animSubStep;
      
-     if (animStep >= 100) {
-        animStep = 100;
+     if (animStep >= 255) {
+        animStep = 255;
         animSubStep = -5;
      } else if (animStep <= 0) {
         animStep = 0;

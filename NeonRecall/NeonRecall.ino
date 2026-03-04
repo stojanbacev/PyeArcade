@@ -27,15 +27,21 @@ int sharedPattern[MAX_PATTERN_LEN];
 int sharedPatternLen = 0;
 bool patternPending = false;
 
+// Animation State Variables
+unsigned long lastAnimationUpdate = 0;
+int animStep = 0;
+int animSubStep = 0;
+int animMode = 0; // For attract mode switching
+unsigned long animTimer = 0; // Generic timer
+bool animActive = false;
+int localPattern[MAX_PATTERN_LEN];
+int localPatternLen = 0;
+
 // Task Synchronization
 SemaphoreHandle_t stateMutex;
 TaskHandle_t NetworkTaskHandle;
 
 // Colors
-uint32_t colorYellow;
-uint32_t colorGreen;
-uint32_t colorPink;
-uint32_t colorBlue;
 uint32_t colorWhite;
 uint32_t colorOff;
 
@@ -55,16 +61,24 @@ uint32_t getJewelColor(int jewelIndex);
 void runAttractMode(unsigned long now);
 
 // Forward declarations
-void animationSnake(int speedDelay);
-void animationPopcorn(int flashes, int speedDelay);
+void runStartingAnimation(unsigned long now);
+void runSuccessAnimation(unsigned long now);
+void runFailAnimation(unsigned long now);
+void runWaitingAnimation(unsigned long now);
+void runPatternTick(unsigned long now);
+void runSnakeTick(unsigned long now, int speedDelay);
+void runPopcornTick(unsigned long now, int speedDelay);
+void runBreathingTick(unsigned long now, int speedDelay);
 
 // --- NETWORK TASK ---
 void networkTask(void * pvParameters) {
+  WiFiClientSecure client;
+  client.setInsecure();
+  HTTPClient http;
+  http.setReuse(true); // Keep connection open if possible
+
   for(;;) {
     if (WiFi.status() == WL_CONNECTED) {
-      WiFiClientSecure client;
-      client.setInsecure(); 
-      HTTPClient http;
       http.begin(client, apiUrl);
       
       int httpResponseCode = http.GET();
@@ -120,10 +134,6 @@ void setup() {
   strip.setBrightness(100); 
 
   // Initialize Colors
-  colorYellow = strip.Color(253, 224, 71);
-  colorGreen  = strip.Color(74, 222, 128);
-  colorPink   = strip.Color(244, 114, 182);
-  colorBlue   = strip.Color(34, 211, 238);
   colorWhite  = strip.Color(255, 255, 255);
   colorOff    = strip.Color(0, 0, 0);
 
@@ -135,7 +145,7 @@ void setup() {
   
   int attempts = 0;
   while (WiFi.status() != WL_CONNECTED && attempts < 20) {
-    animationPulseColor(colorBlue, 10);
+    animationPulseColor(colorWhite, 10);
     delay(500);
     Serial.print(".");
     attempts++;
@@ -161,104 +171,111 @@ void setup() {
   );
 }
 
+// --- ANIMATIONS & LOGIC ---
+
+// Helper to clear state when switching animations
+void resetAnimations() {
+  lastAnimationUpdate = 0;
+  animStep = 0;
+  animSubStep = 0;
+  animTimer = 0;
+  animActive = true;
+  strip.clear();
+  strip.show();
+}
+
 // Internal state tracking for loop
 String lastProcessedState = "";
 long long lastProcessedTimestamp = -1;
 
 void loop() {
-  String localState = "idle";
-  bool isNewState = false;
-  bool doPlayPattern = false;
-  int localPattern[MAX_PATTERN_LEN];
-  int localPatternLen = 0;
-
-  if (xSemaphoreTake(stateMutex, 10)) {
-     // Check if we have a new command from server
+  // 1. Process Network State Updates
+  bool stateChanged = false;
+  
+  if (xSemaphoreTake(stateMutex, 0)) { // Non-blocking check
      if (currentTimestamp > lastProcessedTimestamp) {
         lastProcessedTimestamp = currentTimestamp;
         
-        // Only consider it a "New State" transition if the state string changed
-        // OR if there is a pattern pending (even if state didn't change)
         if (currentState != lastProcessedState || patternPending) {
             lastProcessedState = currentState;
-            isNewState = true;
+            stateChanged = true;
             
             if (patternPending) {
-               doPlayPattern = true;
+               // Copy pattern for playback
                localPatternLen = sharedPatternLen;
                for(int i=0; i<localPatternLen; i++) localPattern[i] = sharedPattern[i];
                patternPending = false;
+               
+               // If we received a pattern, we treat it as a special state "showing_pattern"
+               // even if the server state is technically "idle" or something else.
+               // But usually the server sets state to "showing_pattern".
             }
         }
      }
-     
-     // Always update localState for current animation logic
-     localState = currentState;
-     
      xSemaphoreGive(stateMutex);
   }
 
-  if (isNewState) {
-      strip.clear();
-      strip.show();
-      
-      if (localState == "starting") {
-         animationStarting();
-      } else if (localState == "success") {
-         animationSuccess();
-      } else if (localState == "fail") {
-         animationFail();
-      }
-      
-      if (doPlayPattern) {
-         playPattern(localPattern, localPatternLen);
-      }
+  // 2. Handle State Transitions
+  if (stateChanged) {
+      resetAnimations();
+      Serial.print("State Changed to: ");
+      Serial.println(lastProcessedState);
   }
 
+  // 3. Run Animation Logic based on current state
   unsigned long now = millis();
-  if (localState == "idle") {
-    runAttractMode(now);
-  } else if (localState == "waiting_for_player") {
-     animationWaiting();
+  
+  if (lastProcessedState == "idle") {
+     runAttractMode(now);
+  } else if (lastProcessedState == "starting" || lastProcessedState == "game_start") {
+     runStartingAnimation(now);
+  } else if (lastProcessedState == "success") {
+     runSuccessAnimation(now);
+  } else if (lastProcessedState == "fail") {
+     runFailAnimation(now);
+  } else if (lastProcessedState == "waiting_for_player") {
+     runWaitingAnimation(now);
+  } else if (lastProcessedState == "showing_pattern") {
+     runPatternTick(now);
+  } else {
+     // Default fallback
+     runAttractMode(now);
   }
 }
 
-// --- ANIMATIONS ---
+// --- NON-BLOCKING ANIMATION FUNCTIONS ---
 
 void runAttractMode(unsigned long now) {
-  static unsigned long lastAttractChange = 0;
-  static int currentMode = 0;
-  
-  if (now - lastAttractChange > 10000) { // Change every 10 seconds
-     lastAttractChange = now;
-     currentMode++;
-     if (currentMode > 2) currentMode = 0;
+  // Switch attract mode every 10 seconds
+  if (now - animTimer > 10000) {
+     animTimer = now;
+     animMode++;
+     if (animMode > 2) animMode = 0;
+     
+     // Reset step for the new animation
+     animStep = 0; 
      strip.clear();
      strip.show();
   }
 
-  if (currentMode == 0) {
-    animationSnake(30); 
-  } else if (currentMode == 1) {
-    animationPopcorn(5, 50); 
-  } else if (currentMode == 2) {
-    animationBreathing(1, 15); 
+  if (animMode == 0) {
+    runSnakeTick(now, 30); 
+  } else if (animMode == 1) {
+    runPopcornTick(now, 50); 
+  } else {
+    runBreathingTick(now, 15); 
   }
 }
 
-// Non-blocking Breathe: 1 sec up, 1 sec down
-void animationWaiting() {
+void runWaitingAnimation(unsigned long now) {
+  // Breathing effect (already non-blocking style logic)
   static int brightness = 5;
   static int fadeDir = 1; 
-  static unsigned long lastStep = 0;
   
-  unsigned long now = millis();
-  
-  if (now - lastStep > 4) {
-    lastStep = now;
+  if (now - lastAnimationUpdate > 10) { // faster update for smooth breathe
+    lastAnimationUpdate = now;
     
     brightness += fadeDir;
-    
     if (brightness >= 255) {
       brightness = 255;
       fadeDir = -1;
@@ -266,29 +283,222 @@ void animationWaiting() {
       brightness = 5;
       fadeDir = 1;
     }
-    
     setAll(strip.Color(brightness, brightness, brightness));
+  }
+}
+
+void runStartingAnimation(unsigned long now) {
+  // Flash White 3 times
+  // animStep: 0=On, 1=Off, 2=On, 3=Off, 4=On, 5=Off, 6=Done
+  if (!animActive) return;
+
+  if (now - lastAnimationUpdate > 200) {
+     lastAnimationUpdate = now;
+     
+     if (animStep >= 6) {
+        animActive = false; // Done
+        return;
+     }
+
+     if (animStep % 2 == 0) {
+        setAll(colorWhite);
+     } else {
+        clearAll();
+     }
+     animStep++;
+  }
+}
+
+void runSuccessAnimation(unsigned long now) {
+  // Flash White 5 times fast
+  if (!animActive) return;
+  
+  if (now - lastAnimationUpdate > 100) {
+     lastAnimationUpdate = now;
+     
+     if (animStep >= 10) { // 5 flashes = 10 steps (on/off)
+        animActive = false;
+        return;
+     }
+
+     if (animStep % 2 == 0) {
+        setAll(colorWhite);
+     } else {
+        clearAll();
+     }
+     animStep++;
+  }
+}
+
+void runFailAnimation(unsigned long now) {
+  // Fade out Red (or White, per user instruction only white allowed)
+  // Logic: Start bright, fade to 0
+  if (!animActive) {
+     // Initialize fail state
+     animStep = 255; 
+     animActive = true; 
+  }
+
+  if (now - lastAnimationUpdate > 15) {
+    lastAnimationUpdate = now;
+    
+    if (animStep <= 0) {
+       clearAll();
+       animActive = false; // Done
+       return;
+    }
+    
+    for(int i=0; i<LED_COUNT; i++) {
+       strip.setPixelColor(i, strip.Color(animStep, animStep, animStep));
+    }
     strip.show();
+    animStep -= 5; // Decrease brightness
+  }
+}
+
+void runPatternTick(unsigned long now) {
+  // Play sequence: Light Jewel -> Wait -> Clear -> Wait -> Next Jewel
+  // animStep: Index in pattern
+  // animSubStep: 
+  //   0 = Initial Delay (Start of pattern only)
+  //   1 = Light ON
+  //   2 = Wait ON
+  //   3 = Light OFF
+  //   4 = Wait OFF
+  
+  if (animStep >= localPatternLen) {
+     // Pattern done
+     return; 
+  }
+
+  // Special case: Initial delay before the FIRST jewel
+  if (animStep == 0 && animSubStep == 0) {
+      clearAll();
+      lastAnimationUpdate = now;
+      animSubStep = 100; // Special state for initial delay
+  }
+  
+  if (animSubStep == 100) {
+      // Wait 2 seconds with everything OFF
+      if (now - lastAnimationUpdate > 2000) {
+          animSubStep = 1; // Start the first jewel
+      }
+      return;
+  }
+
+  // Normal Pattern Logic (shifted index to match new enum-like structure)
+  if (animSubStep == 0) {
+      // This state is only hit for subsequent jewels (index > 0)
+      // Immediately move to Light ON
+      animSubStep = 1;
+  }
+  
+  if (animSubStep == 1) {
+     // Turn ON Jewel
+     int jewelIndex = localPattern[animStep];
+     uint32_t color = getJewelColor(jewelIndex); // Will be white
+     lightJewel(jewelIndex, color);
+     lastAnimationUpdate = now;
+     animSubStep = 2; 
+  } 
+  else if (animSubStep == 2) {
+     // Wait 500ms with Light ON
+     if (now - lastAnimationUpdate > 500) {
+        animSubStep = 3;
+     }
+  }
+  else if (animSubStep == 3) {
+     // Turn OFF
+     clearAll();
+     lastAnimationUpdate = now;
+     animSubStep = 4;
+  }
+  else if (animSubStep == 4) {
+     // Wait 250ms with Light OFF
+     if (now - lastAnimationUpdate > 250) {
+        animStep++; // Next jewel
+        animSubStep = 1; // Loop back to Light ON (skip initial delay)
+     }
+  }
+}
+
+void runSnakeTick(unsigned long now, int speedDelay) {
+   if (now - lastAnimationUpdate > speedDelay) {
+      lastAnimationUpdate = now;
+      
+      strip.clear();
+      strip.setPixelColor(animStep, colorWhite);
+      strip.show();
+      
+      animStep++;
+      if (animStep >= LED_COUNT) {
+         animStep = 0;
+      }
+   }
+}
+
+void runPopcornTick(unsigned long now, int speedDelay) {
+   // animStep not really needed for random, but we use timer
+   if (now - lastAnimationUpdate > speedDelay) {
+      lastAnimationUpdate = now;
+      
+      // Clear previous (optional, but popcorn usually clears)
+      // If we want single sparkles, we can clear only the last one, 
+      // but simpler to clear all for this effect
+      strip.clear(); 
+      
+      int randomPixel = random(LED_COUNT);
+      strip.setPixelColor(randomPixel, colorWhite);
+      strip.show();
+      
+      // Note: Original popcorn had a delay then clear. 
+      // Ideally we'd have a state for "show" and "hide", but fast flashing works too.
+   }
+}
+
+void runBreathingTick(unsigned long now, int speedDelay) {
+  // animStep: brightness 0->100->0
+  // animSubStep: direction (1 or -1)
+  
+  if (animSubStep == 0) { 
+     animStep = 0; 
+     animSubStep = 5; // increasing by 5
+  }
+
+  if (now - lastAnimationUpdate > speedDelay) {
+     lastAnimationUpdate = now;
+     
+     strip.setBrightness(animStep);
+     setAll(colorWhite);
+     
+     animStep += animSubStep;
+     
+     if (animStep >= 100) {
+        animStep = 100;
+        animSubStep = -5;
+     } else if (animStep <= 0) {
+        animStep = 0;
+        animSubStep = 5;
+     }
   }
 }
 
 uint32_t getJewelColor(int jewelIndex) {
-  switch (jewelIndex) {
-    case 0: return colorYellow;
-    case 1: return colorGreen;
-    case 2: return colorPink;
-    case 3: return colorBlue;
-    default: return colorWhite;
-  }
+  return colorWhite;
 }
 
 void lightJewel(int index, uint32_t color) {
   strip.clear(); 
+  // Map index to physical LEDs
+  // Note: Original logic: physicalIndex = (NUM_JEWELS - 1) - index;
+  // If we assume valid index 0-3:
+  if (index < 0 || index >= NUM_JEWELS) return;
+  
   int physicalIndex = (NUM_JEWELS - 1) - index;
   int startLed = physicalIndex * LEDS_PER_JEWEL;
-  int endLed = startLed + LEDS_PER_JEWEL;
-  for(int i = startLed; i < endLed; i++) {
-    strip.setPixelColor(i, strip.Color(255, 255, 255));
+  
+  for(int i = 0; i < LEDS_PER_JEWEL; i++) {
+    strip.setPixelColor(startLed + i, color);
   }
   strip.show();
 }
@@ -305,39 +515,12 @@ void setAll(uint32_t color) {
   strip.show();
 }
 
-void playPattern(int* pattern, int length) {
+// Keep blocking helper for setup() only
+void animationPulseColor(uint32_t color, int wait) {
+  setAll(color);
+  delay(wait * 10);
   clearAll();
-  delay(500); 
-  
-  for(int i=0; i<length; i++) {
-    int jewelIndex = pattern[i];
-    uint32_t color = getJewelColor(jewelIndex);
-    
-    lightJewel(jewelIndex, color);
-    delay(500); 
-    
-    clearAll();
-    delay(250); 
-  }
-}
-
-void animationStarting() {
-  animationFlashColor(colorWhite, 3, 200);
-}
-
-void animationSuccess() {
-  animationFlashColor(colorWhite, 5, 100);
-}
-
-void animationFail() {
-  for(int b = 255; b >= 0; b-=2) { 
-    for(int i=0; i<LED_COUNT; i++) {
-       strip.setPixelColor(i, strip.Color(b, b, b));
-    }
-    strip.show();
-    delay(15); 
-  }
-  clearAll();
+  delay(wait * 10);
 }
 
 void animationFlashColor(uint32_t color, int count, int wait) {
@@ -347,50 +530,4 @@ void animationFlashColor(uint32_t color, int count, int wait) {
     clearAll();
     delay(wait);
   }
-}
-
-void animationPulseColor(uint32_t color, int wait) {
-  setAll(color);
-  delay(wait * 10);
-  clearAll();
-  delay(wait * 10);
-}
-
-void animationSnake(int speedDelay) {
-  for(int i = 0; i < LED_COUNT; i++) {
-    strip.clear(); 
-    strip.setPixelColor(i, colorWhite);
-    strip.show();
-    delay(speedDelay);
-  }
-}
-
-void animationPopcorn(int flashes, int speedDelay) {
-  strip.clear();
-  strip.show();
-  
-  for(int i = 0; i < flashes; i++) {
-    int randomPixel = random(LED_COUNT);
-    strip.setPixelColor(randomPixel, colorWhite);
-    strip.show();
-    delay(speedDelay);
-    strip.setPixelColor(randomPixel, 0); 
-  }
-}
-
-void animationBreathing(int cycles, int speedDelay) {
-  int originalBrightness = 100; 
-  for(int c = 0; c < cycles; c++) {
-    for(int k = 0; k < originalBrightness; k+=5) { 
-      strip.setBrightness(k);
-      setAll(colorWhite); 
-      delay(speedDelay);
-    }
-    for(int k = originalBrightness; k >= 0; k-=5) {
-      strip.setBrightness(k);
-      setAll(colorWhite);
-      delay(speedDelay);
-    }
-  }
-  strip.setBrightness(originalBrightness); 
 }

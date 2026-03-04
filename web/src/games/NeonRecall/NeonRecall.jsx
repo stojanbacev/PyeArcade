@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { X, Trophy, Play, RotateCcw } from 'lucide-react';
+import confetti from 'canvas-confetti';
 
 // --- CONFIGURATION ---
 const API_URL = 'games/NeonRecall/api.php'; // Relative to the base index.html
@@ -15,9 +16,13 @@ export default function NeonRecall({ onExit }) {
   const [playerSequence, setPlayerSequence] = useState([]);
   const [statusMessage, setStatusMessage] = useState("Press START");
   const [timeLeft, setTimeLeft] = useState(INPUT_TIMEOUT / 1000);
+  const [countdown, setCountdown] = useState(3); // For Watch Board screen
+  const [activeButtonIndex, setActiveButtonIndex] = useState(null); // Which button is currently lit (for pattern)
   
   // Use refs for values needed inside timeouts/async to avoid stale closures if not careful
   const sequenceRef = useRef([]);
+  const gameStateRef = useRef('idle'); // Sync tracking of state
+  const roundsCompletedRef = useRef(0);
   const failTimeoutRef = useRef(null);
   const startTimeoutRef = useRef(null);
   const patternTimeoutRef = useRef(null);
@@ -31,6 +36,11 @@ export default function NeonRecall({ onExit }) {
     { id: 'pink',   index: 2, baseColor: '#f472b6', glowColor: 'rgba(244, 114, 182, 0.8)' },
     { id: 'blue',   index: 3, baseColor: '#22d3ee', glowColor: 'rgba(34, 211, 238, 0.8)' }
   ];
+
+  const setGameStateSafe = (newState) => {
+    setGameState(newState);
+    gameStateRef.current = newState;
+  };
 
   // Helper to send state to PHP/ESP32
   const sendGameState = async (state, pattern = []) => {
@@ -55,14 +65,15 @@ export default function NeonRecall({ onExit }) {
     setGameSequence([]);
     setPlayerSequence([]);
     sequenceRef.current = [];
+    roundsCompletedRef.current = 0;
     
     // Notify ESP32 to play intro
-    setGameState('starting'); 
+    setGameStateSafe('starting'); 
     setStatusMessage("Get Ready...");
     sendGameState('game_start');
 
-    // Start first round after intro delay
-    startTimeoutRef.current = setTimeout(() => startRound([]), 2000);
+    // Start first round loop
+    startTimeoutRef.current = setTimeout(() => prepareRound(), 2000);
   };
 
   const handleExit = () => {
@@ -70,43 +81,73 @@ export default function NeonRecall({ onExit }) {
     onExit();
   };
 
-  const startRound = (currentSeq) => {
-    // 1. Add new random color (0-3)
-    const nextColor = Math.floor(Math.random() * 4);
-    const newSeq = [...currentSeq, nextColor];
+  const prepareRound = () => {
+    setGameStateSafe('watch_board');
+    setStatusMessage("Watch Board...");
+    
+    // Wait 3 seconds then start the actual round logic
+    startTimeoutRef.current = setTimeout(() => {
+        startRound();
+    }, 3000);
+  };
+
+  const startRound = () => {
+    // 1. Calculate difficulty
+    // Round 0-2: Length 1
+    // Round 3-5: Length 2
+    // Round 6-8: Length 3, etc.
+    const roundsPlayed = roundsCompletedRef.current;
+    const sequenceLength = Math.floor(roundsPlayed / 3) + 1;
+    const currentRoundInLevel = (roundsPlayed % 3) + 1;
+
+    // 2. Generate random sequence (independent of previous)
+    const newSeq = [];
+    for (let i = 0; i < sequenceLength; i++) {
+        newSeq.push(Math.floor(Math.random() * 4));
+    }
     
     setGameSequence(newSeq);
     sequenceRef.current = newSeq;
     setPlayerSequence([]);
-    setGameState('showing_pattern');
-    setStatusMessage(`Level ${newSeq.length}`); // Update status to show level
+    setGameStateSafe('showing_pattern');
+    setStatusMessage("Watch Pattern"); 
+
+    console.log("Starting Round. Pattern:", newSeq); // Debug log
 
     // 2. Send pattern to ESP32
     sendGameState('showing_pattern', newSeq);
 
-    // 3. Wait for pattern to play (approx calculation) + buffer
-    // ESP32 will play it. We just wait here before letting user input.
-    const totalDuration = newSeq.length * (FLASH_DURATION + PAUSE_DURATION) + 1000;
-
+    // 3. Wait for pattern to play on board
+    // ESP32 timing: 500ms delay + length * (500ms flash + 250ms pause)
+    const totalDuration = 500 + newSeq.length * (FLASH_DURATION + PAUSE_DURATION);
+    
+    // Clear any previous timeout
+    if (patternTimeoutRef.current) clearTimeout(patternTimeoutRef.current);
+    
+    // Wait for the duration then enable input
     patternTimeoutRef.current = setTimeout(() => {
-      setGameState('waiting_for_player');
-      setStatusMessage("Your Turn!");
-      setTimeLeft(INPUT_TIMEOUT / 1000);
-      sendGameState('waiting_for_player', []); // Tell ESP32 to listen (or show idle anim)
-      
-      // Start inactivity timer
-      inputTimeoutRef.current = setTimeout(handleTimeout, INPUT_TIMEOUT);
-      
-      // Visual countdown
-      timerIntervalRef.current = setInterval(() => {
-        setTimeLeft(prev => Math.max(0, prev - 1));
-      }, 1000);
-
-    }, totalDuration);
+        setGameStateSafe('waiting_for_player');
+        setStatusMessage("Your Turn!");
+        setTimeLeft(INPUT_TIMEOUT / 1000);
+        sendGameState('waiting_for_player', []); 
+        
+        // Start inactivity timer
+        if (inputTimeoutRef.current) clearTimeout(inputTimeoutRef.current);
+        inputTimeoutRef.current = setTimeout(handleTimeout, INPUT_TIMEOUT);
+        
+        // Visual countdown
+        if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
+        timerIntervalRef.current = setInterval(() => {
+          setTimeLeft(prev => Math.max(0, prev - 1));
+        }, 1000);
+    }, totalDuration + 2000); // 2s buffer between sequence and player input
   };
 
   const handleTimeout = () => {
-    setGameState('fail');
+    // Prevent late timeouts if game already moved on
+    if (gameStateRef.current !== 'waiting_for_player') return;
+    
+    setGameStateSafe('fail');
     setStatusMessage("TIME UP!");
     if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
     sendGameState('fail', []);
@@ -128,7 +169,7 @@ export default function NeonRecall({ onExit }) {
 
   const handleButtonPress = (btn) => {
     // Only accept input if it's the player's turn
-    if (gameState !== 'waiting_for_player') return;
+    if (gameStateRef.current !== 'waiting_for_player') return;
 
     // Reset inactivity timer on every press
     if (inputTimeoutRef.current) clearTimeout(inputTimeoutRef.current);
@@ -141,13 +182,15 @@ export default function NeonRecall({ onExit }) {
       setTimeLeft(prev => Math.max(0, prev - 1));
     }, 1000);
 
+    // Add to player sequence
+    const newPlayerSeq = [...playerSequence, btn.index];
+
     console.log(`User pressed: ${btn.id} (${btn.index})`);
+    console.log("Expected Seq:", sequenceRef.current, "Player Seq So Far:", newPlayerSeq);
     
     // Feedback
     if (navigator.vibrate) navigator.vibrate(50);
     
-    // Add to player sequence
-    const newPlayerSeq = [...playerSequence, btn.index];
     setPlayerSequence(newPlayerSeq);
 
     // Check logic
@@ -155,9 +198,10 @@ export default function NeonRecall({ onExit }) {
     
     if (newPlayerSeq[currentIndex] !== sequenceRef.current[currentIndex]) {
       // WRONG! - GAME OVER LOGIC
-      setGameState('fail');
+      setGameStateSafe('fail');
       setStatusMessage("GAME OVER");
       if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
+      if (inputTimeoutRef.current) clearTimeout(inputTimeoutRef.current); // Clear valid timeout
       sendGameState('fail', []);
       if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
 
@@ -178,19 +222,22 @@ export default function NeonRecall({ onExit }) {
       // CORRECT SO FAR
       if (newPlayerSeq.length === sequenceRef.current.length) {
         // ROUND COMPLETE
-        setGameState('success');
+        setGameStateSafe('success');
         if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
-        if (inputTimeoutRef.current) clearTimeout(inputTimeoutRef.current);
+        if (inputTimeoutRef.current) clearTimeout(inputTimeoutRef.current); // STOP TIMEOUT
         setScore(prev => prev + 10);
-        setStatusMessage("Success!");
+        roundsCompletedRef.current += 1;
+        
+        setStatusMessage("CORRECT!");
         sendGameState('success', []);
         
-        // Wait then start next round
+        // Show Correct screen for 2s, then Watch Board screen
         nextRoundTimeoutRef.current = setTimeout(() => {
-          startRound(sequenceRef.current);
-        }, 1500);
+          prepareRound();
+        }, 2000);
       } else {
         // Still playing sequence, restart inactivity timer
+        if (inputTimeoutRef.current) clearTimeout(inputTimeoutRef.current);
         inputTimeoutRef.current = setTimeout(handleTimeout, INPUT_TIMEOUT);
       }
     }
@@ -207,6 +254,74 @@ export default function NeonRecall({ onExit }) {
       if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
     };
   }, []);
+
+  // Effect for confetti on success and fail
+  useEffect(() => {
+    if (gameState === 'success') {
+       // Fire confetti from left and right
+       const duration = 2000;
+       const end = Date.now() + duration;
+       const colors = ['#fde047', '#4ade80', '#f472b6', '#22d3ee', '#ffffff'];
+
+       (function frame() {
+         confetti({
+           particleCount: 3,
+           angle: 60,
+           spread: 55,
+           origin: { x: 0 },
+           colors: colors
+         });
+         confetti({
+           particleCount: 3,
+           angle: 120,
+           spread: 55,
+           origin: { x: 1 },
+           colors: colors
+         });
+  
+         if (Date.now() < end) {
+           requestAnimationFrame(frame);
+         }
+       }());
+    } else if (gameState === 'fail') {
+       // Sad confetti (grey/red, heavy rain effect)
+       const duration = 3000;
+       const end = Date.now() + duration;
+       const colors = ['#555555', '#333333', '#111111', '#880000'];
+
+       (function frame() {
+         confetti({
+           particleCount: 8,
+           angle: 90,
+           spread: 160,
+           startVelocity: 40,
+           gravity: 1.2,
+           origin: { y: -0.1 }, // Start slightly above screen
+           colors: colors,
+           shapes: ['square'],
+           scalar: 2, // Much bigger particles
+           drift: 0,
+           ticks: 400
+         });
+  
+         if (Date.now() < end) {
+           requestAnimationFrame(frame);
+         }
+       }());
+    }
+  }, [gameState]);
+
+  // Effect for Watch Board countdown
+  useEffect(() => {
+    let interval;
+    if (gameState === 'watch_board') {
+       setCountdown(3);
+       interval = setInterval(() => {
+          setCountdown(prev => (prev > 1 ? prev - 1 : 1));
+       }, 1000);
+    }
+    return () => clearInterval(interval);
+  }, [gameState]);
 
   return (
     <div className="flex flex-col h-screen w-screen bg-black text-white overflow-hidden relative font-sans touch-none select-none">
@@ -278,20 +393,53 @@ export default function NeonRecall({ onExit }) {
              </div>
         ) : null}
 
+        {gameState === 'success' && (
+             <div className="absolute z-50 inset-0 flex flex-col items-center justify-center bg-black/80 backdrop-blur-md animate-in fade-in zoom-in duration-300">
+                <div className="absolute inset-0 bg-gradient-to-br from-green-900/20 via-transparent to-blue-900/20 animate-pulse pointer-events-none"></div>
+                
+                <h1 className="text-6xl md:text-8xl font-black text-transparent bg-clip-text bg-gradient-to-r from-green-400 via-yellow-200 to-green-400 drop-shadow-[0_0_30px_rgba(74,222,128,0.8)] animate-bounce tracking-widest z-10">
+                    CORRECT!
+                </h1>
+                
+                <div className="relative mt-10 scale-150">
+                    <div className="absolute -inset-8 bg-yellow-500/30 rounded-full blur-2xl animate-ping duration-1000"></div>
+                    <div className="absolute -inset-4 bg-yellow-400/50 rounded-full blur-lg animate-pulse"></div>
+                    <Trophy size={80} className="text-yellow-400 relative z-10 drop-shadow-[0_0_20px_rgba(253,224,71,0.8)]" />
+                </div>
+                
+                <p className="text-white/90 mt-12 text-2xl font-bold animate-pulse tracking-widest drop-shadow-[0_2px_4px_rgba(0,0,0,0.5)]">
+                    Keep it up!
+                </p>
+             </div>
+        )}
+
+        {gameState === 'watch_board' && (
+             <div className="absolute z-50 inset-0 flex flex-col items-center justify-center bg-black/90 p-4 animate-in fade-in duration-500">
+                <h2 className="text-3xl md:text-4xl font-black text-blue-300 mb-4 tracking-wide drop-shadow-[0_0_10px_rgba(147,197,253,0.5)] text-center">
+                    WATCH THE BOARD
+                </h2>
+                <div className="text-7xl font-mono font-bold text-white mb-4 animate-pulse drop-shadow-[0_0_20px_rgba(255,255,255,0.8)]">
+                    {countdown}
+                </div>
+                <p className="text-lg text-gray-400 animate-pulse">Next sequence starting...</p>
+                <div className="mt-4 w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin shadow-[0_0_20px_rgba(59,130,246,0.5)]"></div>
+             </div>
+        )}
+
         {gameState === 'fail' ? (
-             <div className="absolute z-50 flex flex-col items-center gap-6 bg-black/90 p-10 rounded-2xl border border-red-500/50 backdrop-blur-xl shadow-[0_0_50px_rgba(239,68,68,0.4)] text-center animate-in fade-in zoom-in duration-300">
-                <h2 className="text-4xl text-red-500 font-black tracking-wider drop-shadow-[0_0_10px_rgba(239,68,68,0.8)]">GAME OVER</h2>
-                <div className="flex flex-col gap-1">
-                  <span className="text-gray-400 text-sm uppercase tracking-widest">Final Score</span>
-                  <span className="text-5xl font-mono text-white font-bold">{score}</span>
+             <div className="absolute z-50 flex flex-col items-center gap-4 bg-black/90 p-6 rounded-2xl border border-red-500/50 backdrop-blur-xl shadow-[0_0_50px_rgba(239,68,68,0.4)] text-center animate-in fade-in zoom-in duration-300">
+                <h2 className="text-3xl text-red-500 font-black tracking-wider drop-shadow-[0_0_10px_rgba(239,68,68,0.8)]">GAME OVER</h2>
+                <div className="flex flex-col gap-0">
+                  <span className="text-gray-400 text-xs uppercase tracking-widest">Final Score</span>
+                  <span className="text-4xl font-mono text-white font-bold">{score}</span>
                 </div>
                 <button 
                   onClick={handleExit}
-                  className="mt-2 flex items-center gap-2 text-xl font-bold bg-white text-black px-8 py-3 rounded-full hover:bg-gray-200 active:scale-95 transition-all shadow-[0_0_20px_rgba(255,255,255,0.4)]"
+                  className="mt-1 flex items-center gap-2 text-lg font-bold bg-white text-black px-6 py-2 rounded-full hover:bg-gray-200 active:scale-95 transition-all shadow-[0_0_20px_rgba(255,255,255,0.4)]"
                 >
                   OK
                 </button>
-                <p className="text-xs text-gray-500 mt-2">Returning to menu in {timeLeft}s...</p>
+                <p className="text-xs text-gray-500 mt-1">Returning to menu in {timeLeft}s...</p>
              </div>
         ) : null}
 
@@ -305,9 +453,10 @@ export default function NeonRecall({ onExit }) {
               boxShadow: `0 0 35px ${btn.glowColor}, inset -12px -12px 20px rgba(0,0,0,0.4), inset 12px 12px 25px rgba(255,255,255,0.9)`,
               borderRadius: '50%',
               aspectRatio: '1 / 1',
-              opacity: gameState === 'waiting_for_player' || gameState === 'showing_pattern' ? 1 : 0.3,
-              filter: gameState !== 'waiting_for_player' ? 'grayscale(0.5)' : 'none',
-              transform: gameState !== 'waiting_for_player' ? 'scale(0.95)' : 'scale(1)'
+              // Show opacity if: waiting for player, OR success, OR (showing pattern AND this is the active button)
+              opacity: gameState === 'waiting_for_player' || gameState === 'success' || (gameState === 'showing_pattern' && activeButtonIndex === btn.index) ? 1 : 0.3,
+              filter: gameState === 'waiting_for_player' || gameState === 'success' || (gameState === 'showing_pattern' && activeButtonIndex === btn.index) ? 'brightness(1.2)' : 'grayscale(0.5)',
+              transform: activeButtonIndex === btn.index ? 'scale(1.1)' : (gameState === 'waiting_for_player' || gameState === 'success' ? 'scale(1)' : 'scale(0.95)')
             }}
             className="w-24 h-24 sm:w-32 sm:h-32 md:w-40 md:h-40 rounded-full active:scale-90 active:brightness-125 transition-all duration-75 border border-white/30 relative overflow-hidden flex-shrink-0"
           >

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { useAuth } from '../../context/AuthContext.jsx'; // Need to pass context or use hook
 import { X, Trophy, Play, RotateCcw } from 'lucide-react';
 import confetti from 'canvas-confetti';
 
@@ -8,21 +9,19 @@ const FLASH_DURATION = 500; // ms per flash
 const PAUSE_DURATION = 250; // ms between flashes
 const INPUT_TIMEOUT = 20000; // 20s to press a button before game over
 
-export default function NeonRecall({ onExit, boardId = 'neon_recall_1' }) {
+export default function NeonRecall({ onExit, boardId = 'neon_recall_1', sessionId }) {
+  const { endSession } = useAuth();
   const [score, setScore] = useState(0);
   const [gameState, setGameState] = useState('idle'); // idle, showing_pattern, waiting_for_player, success, fail
-  const [gameSequence, setGameSequence] = useState([]);
   const [playerSequence, setPlayerSequence] = useState([]);
   const [statusMessage, setStatusMessage] = useState("Press START");
   const [timeLeft, setTimeLeft] = useState(INPUT_TIMEOUT / 1000);
   const [countdown, setCountdown] = useState(3); // For Watch Board screen
-  const [activeButtonIndex, setActiveButtonIndex] = useState(null); // Which button is currently lit (for pattern)
   
   // Use refs for values needed inside timeouts/async to avoid stale closures if not careful
   const sequenceRef = useRef([]);
   const gameStateRef = useRef('idle'); // Sync tracking of state
   const roundsCompletedRef = useRef(0);
-  const failTimeoutRef = useRef(null);
   const startTimeoutRef = useRef(null);
   const patternTimeoutRef = useRef(null);
   const nextRoundTimeoutRef = useRef(null);
@@ -61,7 +60,6 @@ export default function NeonRecall({ onExit, boardId = 'neon_recall_1' }) {
 
   const startGame = () => {
     setScore(0);
-    setGameSequence([]);
     setPlayerSequence([]);
     sequenceRef.current = [];
     roundsCompletedRef.current = 0;
@@ -77,6 +75,10 @@ export default function NeonRecall({ onExit, boardId = 'neon_recall_1' }) {
 
   const handleExit = () => {
     sendGameState('game_end'); // Reset board
+    // Record final score if we have a valid session
+    if (sessionId) {
+        endSession(sessionId, score);
+    }
     onExit();
   };
 
@@ -97,7 +99,6 @@ export default function NeonRecall({ onExit, boardId = 'neon_recall_1' }) {
     // Round 6-8: Length 3, etc.
     const roundsPlayed = roundsCompletedRef.current;
     const sequenceLength = Math.floor(roundsPlayed / 3) + 1;
-    const currentRoundInLevel = (roundsPlayed % 3) + 1;
 
     // 2. Generate random sequence (independent of previous)
     const newSeq = [];
@@ -105,13 +106,11 @@ export default function NeonRecall({ onExit, boardId = 'neon_recall_1' }) {
         newSeq.push(Math.floor(Math.random() * 4));
     }
     
-    setGameSequence(newSeq);
     sequenceRef.current = newSeq;
     setPlayerSequence([]);
     setGameStateSafe('showing_pattern');
     setStatusMessage("Watch Pattern"); 
 
-    console.log("Starting Round. Pattern:", newSeq); // Debug log
 
     // 2. Send pattern to ESP32
     sendGameState('showing_pattern', newSeq);
@@ -184,9 +183,6 @@ export default function NeonRecall({ onExit, boardId = 'neon_recall_1' }) {
     // Add to player sequence
     const newPlayerSeq = [...playerSequence, btn.index];
 
-    console.log(`User pressed: ${btn.id} (${btn.index})`);
-    console.log("Expected Seq:", sequenceRef.current, "Player Seq So Far:", newPlayerSeq);
-    
     // Feedback
     if (navigator.vibrate) navigator.vibrate(50);
     
@@ -245,7 +241,6 @@ export default function NeonRecall({ onExit, boardId = 'neon_recall_1' }) {
   // Cleanup timeout if component unmounts
   React.useEffect(() => {
     return () => {
-      if (failTimeoutRef.current) clearTimeout(failTimeoutRef.current);
       if (startTimeoutRef.current) clearTimeout(startTimeoutRef.current);
       if (patternTimeoutRef.current) clearTimeout(patternTimeoutRef.current);
       if (nextRoundTimeoutRef.current) clearTimeout(nextRoundTimeoutRef.current);
@@ -452,10 +447,10 @@ export default function NeonRecall({ onExit, boardId = 'neon_recall_1' }) {
               boxShadow: `0 0 35px ${btn.glowColor}, inset -12px -12px 20px rgba(0,0,0,0.4), inset 12px 12px 25px rgba(255,255,255,0.9)`,
               borderRadius: '50%',
               aspectRatio: '1 / 1',
-              // Show opacity if: waiting for player, OR success, OR (showing pattern AND this is the active button)
-              opacity: gameState === 'waiting_for_player' || gameState === 'success' || (gameState === 'showing_pattern' && activeButtonIndex === btn.index) ? 1 : 0.3,
-              filter: gameState === 'waiting_for_player' || gameState === 'success' || (gameState === 'showing_pattern' && activeButtonIndex === btn.index) ? 'brightness(1.2)' : 'grayscale(0.5)',
-              transform: activeButtonIndex === btn.index ? 'scale(1.1)' : (gameState === 'waiting_for_player' || gameState === 'success' ? 'scale(1)' : 'scale(0.95)')
+              // Show opacity if: waiting for player, OR success
+              opacity: gameState === 'waiting_for_player' || gameState === 'success' ? 1 : 0.3,
+              filter: gameState === 'waiting_for_player' || gameState === 'success' ? 'brightness(1.2)' : 'grayscale(0.5)',
+              transform: gameState === 'waiting_for_player' || gameState === 'success' ? 'scale(1)' : 'scale(0.95)'
             }}
             className="w-24 h-24 sm:w-32 sm:h-32 md:w-40 md:h-40 rounded-full active:scale-90 active:brightness-125 transition-all duration-75 border border-white/30 relative overflow-hidden flex-shrink-0"
           >

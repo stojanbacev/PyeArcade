@@ -1,7 +1,10 @@
 import React, { useState } from 'react';
-import { Gamepad2, Info, X, Play } from 'lucide-react';
+import { Gamepad2, Info, X, Play, LogOut, Lock } from 'lucide-react';
 import NeonRecall from './games/NeonRecall/NeonRecall';
 import SwipeStrike from './games/SwipeStrike/SwipeStrike';
+import AuthPage from './components/AuthPage.jsx';
+import ChangePassword from './components/ChangePassword.jsx';
+import { useAuth } from './context/AuthContext.jsx';
 
 const GAME_COMPONENTS = {
   'neon-recall': NeonRecall,
@@ -31,13 +34,20 @@ const GAME_TEMPLATES = {
 };
 
 export default function App() {
+  const { user, logout, startSession, loading: authLoading } = useAuth();
   const [currentView, setCurrentView] = useState('home');
+  const [currentSessionId, setCurrentSessionId] = useState(null);
   const [selectedGame, setSelectedGame] = useState(null);
   const [activeBoards, setActiveBoards] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  // Fetch active boards from API
+  // Fetch active boards from API (only when authenticated)
   React.useEffect(() => {
+    if (!user) {
+      setActiveBoards([]);
+      setLoading(true);
+      return; // skip when not logged in
+    }
     const fetchBoards = async () => {
       try {
         const response = await fetch('games/NeonRecall/api.php?action=list_boards');
@@ -53,7 +63,7 @@ export default function App() {
     fetchBoards();
     const interval = setInterval(fetchBoards, 5000); // Refresh every 5s
     return () => clearInterval(interval);
-  }, []);
+  }, [user]);
 
   // Handle game selection with online check
   const handleGameSelect = async (game) => {
@@ -95,6 +105,19 @@ export default function App() {
   });
 
   const enterGameMode = async () => {
+    if (user.credits < 1) {
+      alert("Not enough credits to play!");
+      return;
+    }
+
+    const result = await startSession(selectedGame.boardId, selectedGame.title);
+    if (!result.success) {
+      alert("Could not start game session: " + result.message);
+      return;
+    }
+
+    setCurrentSessionId(result.sessionId);
+
     try {
       if (document.documentElement.requestFullscreen) {
         await document.documentElement.requestFullscreen();
@@ -123,6 +146,19 @@ export default function App() {
     setSelectedGame(null);
   };
 
+  // show login/register page if not signed in
+  if (authLoading) {
+    return <div className="flex items-center justify-center h-screen text-gray-400">Checking authentication...</div>;
+  }
+
+  if (!user) {
+    return <AuthPage />;
+  }
+
+  if (currentView === 'change_password') {
+    return <ChangePassword onDone={() => setCurrentView('home')} />;
+  }
+
   const renderHome = () => (
     <div className="flex flex-col h-[100dvh] w-screen bg-gray-900 text-white overflow-hidden font-sans">
       <header className="flex justify-between items-center px-6 pt-6 pb-4 shrink-0">
@@ -130,8 +166,32 @@ export default function App() {
           <h1 className="text-3xl font-black text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-blue-500">PYE CLUB</h1>
           <p className="text-gray-400 text-sm tracking-widest uppercase mt-1">Arcade Portal</p>
         </div>
-        <div className="bg-gray-800 p-3 rounded-full shadow-[0_0_15px_rgba(0,229,255,0.3)]">
-          <Gamepad2 className="text-cyan-400" size={28} />
+        <div className="flex items-center gap-4">
+          {user && (
+            <>
+              <span className="text-sm text-gray-300">
+                {user.email}{' '}
+                {user.credits != null && <span className="text-xs text-cyan-400">Credits: {user.credits}</span>}
+              </span>
+              <button
+                onClick={() => setCurrentView('change_password')}
+                className="p-2 rounded-full bg-gray-800 hover:bg-gray-700"
+                title="Change Password"
+              >
+                <Lock size={20} className="text-cyan-400" />
+              </button>
+              <button
+                onClick={logout}
+                className="p-2 rounded-full bg-gray-800 hover:bg-gray-700"
+                title="Logout"
+              >
+                <LogOut size={20} className="text-cyan-400" />
+              </button>
+            </>
+          )}
+          <div className="bg-gray-800 p-3 rounded-full shadow-[0_0_15px_rgba(0,229,255,0.3)]">
+            <Gamepad2 className="text-cyan-400" size={28} />
+          </div>
         </div>
       </header>
 
@@ -206,11 +266,15 @@ export default function App() {
       <footer className="pb-8">
         <button
           onClick={enterGameMode}
-          className="w-full bg-gradient-to-r from-cyan-500 to-blue-600 text-white font-bold text-xl py-5 rounded-2xl shadow-[0_0_20px_rgba(0,229,255,0.4)] flex justify-center items-center gap-2 active:scale-95 transition-all uppercase tracking-wider"
+          disabled={user.credits < 1}
+          className={`w-full bg-gradient-to-r from-cyan-500 to-blue-600 text-white font-bold text-xl py-5 rounded-2xl shadow-[0_0_20px_rgba(0,229,255,0.4)] flex justify-center items-center gap-2 active:scale-95 transition-all uppercase tracking-wider ${user.credits < 1 ? 'opacity-50 cursor-not-allowed grayscale' : ''}`}
         >
           <Play size={24} fill="currentColor" />
-          Start Game
+          Start Game (1 Credit)
         </button>
+        {user.credits < 1 && (
+             <p className="text-center text-red-400 mt-2 text-sm">Not enough credits!</p>
+        )}
       </footer>
     </div>
   );
@@ -233,7 +297,7 @@ export default function App() {
       );
     }
 
-    return <GameComponent onExit={exitGameMode} boardId={selectedGame?.boardId} />;
+    return <GameComponent onExit={exitGameMode} boardId={selectedGame?.boardId} sessionId={currentSessionId} />;
   };
 
   return (

@@ -217,7 +217,7 @@ void resetAnimations() {
   lastAnimationUpdate = 0;
   animStep = 0;
   animSubStep = 0;
-  animTimer = 0;
+  animTimer = millis();
   animActive = true;
   strip.clear();
   strip.show();
@@ -307,22 +307,34 @@ void runAttractMode(unsigned long now) {
 }
 
 void runWaitingAnimation(unsigned long now) {
-  // Breathing effect (already non-blocking style logic)
-  static int brightness = 5;
-  static int fadeDir = 1; 
+  // Wait 2 seconds before starting animation
+  if (now - animTimer < 2000) {
+      return;
+  }
+
+  // Initialize breathing start values if needed (since resetAnimations zeroes them)
+  if (animStep == 0 && animSubStep == 0) {
+      animStep = 5;    // Start brightness
+      animSubStep = 1; // Fade direction (1 = up)
+  }
   
   if (now - lastAnimationUpdate > 10) { // faster update for smooth breathe
     lastAnimationUpdate = now;
     
-    brightness += fadeDir;
-    if (brightness >= 255) {
-      brightness = 255;
-      fadeDir = -1;
-    } else if (brightness <= 5) {
-      brightness = 5;
-      fadeDir = 1;
+    animStep += animSubStep;
+    
+    // Bounce brightness between 5 and 255
+    if (animStep >= 255) {
+      animStep = 255;
+      animSubStep = -1;
+    } else if (animStep <= 5) {
+      animStep = 5;
+      animSubStep = 1;
     }
-    setAll(strip.Color(brightness, brightness, brightness));
+    
+    // Safety clamp
+    int b = constrain(animStep, 0, 255);
+    setAll(strip.Color(b, b, b));
   }
 }
 

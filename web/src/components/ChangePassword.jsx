@@ -78,8 +78,9 @@ export default function ChangePassword({ onDone }) {
                   <button
                     type="button"
                     onClick={() => setShowCurrent(!showCurrent)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-200"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 z-10 pointer-events-auto text-gray-400 hover:text-gray-200 focus:outline-none"
                     title={showCurrent ? 'Hide password' : 'Show password'}
+                    tabIndex="0"
                   >
                     {showCurrent ? <EyeOff size={18} /> : <Eye size={18} />}
                   </button>
@@ -104,8 +105,9 @@ export default function ChangePassword({ onDone }) {
                   <button
                     type="button"
                     onClick={() => setShowNew(!showNew)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-200"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 z-10 pointer-events-auto text-gray-400 hover:text-gray-200 focus:outline-none"
                     title={showNew ? 'Hide password' : 'Show password'}
+                    tabIndex="0"
                   >
                     {showNew ? <EyeOff size={18} /> : <Eye size={18} />}
                   </button>
@@ -130,8 +132,9 @@ export default function ChangePassword({ onDone }) {
                   <button
                     type="button"
                     onClick={() => setShowConfirm(!showConfirm)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-200"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 z-10 pointer-events-auto text-gray-400 hover:text-gray-200 focus:outline-none"
                     title={showConfirm ? 'Hide password' : 'Show password'}
+                    tabIndex="0"
                   >
                     {showConfirm ? <EyeOff size={18} /> : <Eye size={18} />}
                   </button>

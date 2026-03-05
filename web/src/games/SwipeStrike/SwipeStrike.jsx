@@ -1,7 +1,9 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef } from 'react';
+import { useAuth } from '../../context/AuthContext.jsx';
 import { Trophy, X } from 'lucide-react';
 
-export default function SwipeStrike({ onExit }) {
+export default function SwipeStrike({ onExit, sessionId }) {
+  const { endSession } = useAuth();
   const [score, setScore] = useState(0);
   const [path, setPath] = useState([]);
   const [isDrawing, setIsDrawing] = useState(false);
@@ -54,10 +56,7 @@ export default function SwipeStrike({ onExit }) {
     setCurrentPointer(null);
 
     if (path.length > 0) {
-      // THIS IS WHERE YOU WILL SEND DATA TO THE ESP32
-      console.log("Sequence Submitted to ESP32:", path);
-      
-      // Temporary logic: Add score and clear path after a delay
+      // Sequence submitted to ESP32
       setScore(prev => prev + (path.length * 10));
       setTimeout(() => setPath([]), 400);
     }
@@ -115,7 +114,10 @@ export default function SwipeStrike({ onExit }) {
 
         <div className="w-1/3 flex justify-end">
           <button 
-            onClick={onExit}
+            onClick={() => {
+              if (sessionId) endSession(sessionId, score);
+              onExit();
+            }}
             className="flex items-center gap-1 text-sm font-bold text-[#00FFFF] bg-[#00FFFF]/10 px-4 py-2 rounded-full border border-[#00FFFF]/50 hover:bg-[#00FFFF]/20 active:scale-95 transition-all shadow-[0_0_10px_rgba(0,255,255,0.3)]"
           >
             EXIT <X size={16} />

@@ -161,37 +161,48 @@ export default function App() {
 
   const renderHome = () => (
     <div className="flex flex-col h-[100dvh] w-screen bg-gray-900 text-white overflow-hidden font-sans">
-      <header className="flex justify-between items-center px-6 pt-6 pb-4 shrink-0">
-        <div>
-          <h1 className="text-3xl font-black text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-blue-500">PYE CLUB</h1>
-          <p className="text-gray-400 text-sm tracking-widest uppercase mt-1">Arcade Portal</p>
-        </div>
+      {/* Main Branding Header */}
+      <header className="flex justify-center items-center px-6 py-6 shrink-0 border-b border-gray-700/50">
         <div className="flex items-center gap-4">
+          <div className="bg-gray-800 p-3 rounded-full shadow-[0_0_15px_rgba(0,229,255,0.3)]">
+            <Gamepad2 className="text-cyan-400" size={32} />
+          </div>
+          <div>
+            <h1 className="text-4xl font-black text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-blue-500">PYE CLUB</h1>
+            <p className="text-gray-400 text-xs tracking-widest uppercase">Arcade Portal</p>
+          </div>
+        </div>
+      </header>
+
+      {/* User Info Header */}
+      <header className="flex justify-between items-center px-6 py-3 shrink-0 border-b border-gray-700/30 bg-gray-800/30">
+        <div>
+          {user && (
+            <div className="flex flex-col gap-1">
+              <span className="text-sm text-gray-300">{user.email}</span>
+              {user.credits != null && <span className="text-xs text-cyan-400 font-bold">Credits: {user.credits}</span>}
+            </div>
+          )}
+        </div>
+        <div className="flex items-center gap-3">
           {user && (
             <>
-              <span className="text-sm text-gray-300">
-                {user.email}{' '}
-                {user.credits != null && <span className="text-xs text-cyan-400">Credits: {user.credits}</span>}
-              </span>
               <button
                 onClick={() => setCurrentView('change_password')}
-                className="p-2 rounded-full bg-gray-800 hover:bg-gray-700"
+                className="p-2 rounded-full bg-gray-700 hover:bg-gray-600 transition-colors"
                 title="Change Password"
               >
                 <Lock size={20} className="text-cyan-400" />
               </button>
               <button
                 onClick={logout}
-                className="p-2 rounded-full bg-gray-800 hover:bg-gray-700"
+                className="p-2 rounded-full bg-gray-700 hover:bg-gray-600 transition-colors"
                 title="Logout"
               >
                 <LogOut size={20} className="text-cyan-400" />
               </button>
             </>
           )}
-          <div className="bg-gray-800 p-3 rounded-full shadow-[0_0_15px_rgba(0,229,255,0.3)]">
-            <Gamepad2 className="text-cyan-400" size={28} />
-          </div>
         </div>
       </header>
 

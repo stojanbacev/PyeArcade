@@ -122,7 +122,7 @@ export default function NeonRecall({ onExit, boardId = 'neon_recall_1', sessionI
     // Clear any previous timeout
     if (patternTimeoutRef.current) clearTimeout(patternTimeoutRef.current);
     
-    // Wait for the duration then enable input
+    // Wait for pattern to finish (board goes dark) + 2 seconds pause, then enable input
     patternTimeoutRef.current = setTimeout(() => {
         setGameStateSafe('waiting_for_player');
         setStatusMessage("Your Turn!");
@@ -138,7 +138,7 @@ export default function NeonRecall({ onExit, boardId = 'neon_recall_1', sessionI
         timerIntervalRef.current = setInterval(() => {
           setTimeLeft(prev => Math.max(0, prev - 1));
         }, 1000);
-    }, totalDuration + 2000); // 2s buffer between sequence and player input
+    }, totalDuration + 2000); // Wait pattern duration + 2 seconds before accepting input
   };
 
   const handleTimeout = () => {

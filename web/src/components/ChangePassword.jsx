@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Eye, EyeOff } from 'lucide-react';
+import { Eye, EyeOff, Gamepad2 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext.jsx';
 
 export default function ChangePassword({ onDone }) {
@@ -40,7 +40,20 @@ export default function ChangePassword({ onDone }) {
   };
 
   return (
-    <div className="flex items-center justify-center h-screen bg-gray-900 text-white">
+    <div className="flex flex-col h-[100dvh] w-screen bg-gray-900 text-white overflow-hidden font-sans">
+      <header className="flex justify-center items-center px-6 py-6 shrink-0 border-b border-gray-700/50">
+        <div className="flex items-center gap-4">
+          <div className="bg-gray-800 p-3 rounded-full shadow-[0_0_15px_rgba(0,229,255,0.3)]">
+            <Gamepad2 className="text-cyan-400" size={32} />
+          </div>
+          <div>
+            <h1 className="text-4xl font-black text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-blue-500">PYE CLUB</h1>
+            <p className="text-gray-400 text-xs tracking-widest uppercase">Arcade Portal</p>
+          </div>
+        </div>
+      </header>
+
+      <main className="flex-1 flex items-center justify-center p-6 overflow-y-auto">
       <div className="w-full max-w-md p-8 space-y-6 bg-gray-800 rounded-xl shadow-lg">
         <h2 className="text-3xl font-extrabold text-center">Change Password</h2>
         {error && <p className="text-red-400 text-center">{error}</p>}
@@ -163,6 +176,13 @@ export default function ChangePassword({ onDone }) {
           </button>
         </div>
       </div>
+      </main>
+
+      <footer className="shrink-0 text-center py-4 bg-gray-900/95 backdrop-blur-sm border-t border-white/5 z-20">
+        <div className="inline-block bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 text-xs font-bold px-4 py-2 rounded-full tracking-wider uppercase">
+          Help kids code!
+        </div>
+      </footer>
     </div>
   );
 }

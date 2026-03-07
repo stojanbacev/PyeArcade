@@ -29,22 +29,30 @@ CREATE TABLE IF NOT EXISTS users (
     id INT AUTO_INCREMENT PRIMARY KEY,
     email VARCHAR(255) NOT NULL UNIQUE,
     password_hash VARCHAR(255) NOT NULL,
-    credits INT NOT NULL DEFAULT 0
+    credits INT NOT NULL DEFAULT 0,
+    auth_provider VARCHAR(50) DEFAULT 'email',
+    provider_id VARCHAR(255),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
 
 -- track available games
 CREATE TABLE IF NOT EXISTS games (
     id INT AUTO_INCREMENT PRIMARY KEY,
     name VARCHAR(255) NOT NULL UNIQUE,
-    slug VARCHAR(255) NOT NULL UNIQUE
+    slug VARCHAR(255) NOT NULL UNIQUE,
+    cost INT NOT NULL DEFAULT 1,
+    is_active TINYINT(1) NOT NULL DEFAULT 1
 );
 
 -- registered physical boards
 CREATE TABLE IF NOT EXISTS game_boards (
-    id VARCHAR(64) PRIMARY KEY,
-    game VARCHAR(64) NOT NULL,
+    board_id VARCHAR(64) PRIMARY KEY,
+    game_id INT NOT NULL,
     state_json JSON,
-    last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    status VARCHAR(50) DEFAULT 'offline',
+    FOREIGN KEY (game_id) REFERENCES games(id)
 );
 
 -- credit/debit transactions
@@ -52,6 +60,8 @@ CREATE TABLE IF NOT EXISTS transactions (
     id INT AUTO_INCREMENT PRIMARY KEY,
     user_id INT NOT NULL,
     amount INT NOT NULL,
+    type VARCHAR(50) NOT NULL DEFAULT 'generic',
+    reference_id VARCHAR(255),
     description TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id)
@@ -63,15 +73,17 @@ CREATE TABLE IF NOT EXISTS game_sessions (
     user_id INT NOT NULL,
     board_id VARCHAR(64) NOT NULL,
     score INT DEFAULT 0,
+    status VARCHAR(50) DEFAULT 'active',
     started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     ended_at TIMESTAMP NULL,
-    FOREIGN KEY (user_id) REFERENCES users(id)
+    FOREIGN KEY (user_id) REFERENCES users(id),
+    FOREIGN KEY (board_id) REFERENCES game_boards(board_id)
 );
 
 -- insert initial available games
-INSERT IGNORE INTO games (name, slug) VALUES
-('Neon Recall', 'neon-recall'),
-('Swipe Strike', 'swipe-strike');
+INSERT IGNORE INTO games (name, slug, cost, is_active) VALUES
+('Neon Recall', 'neon-recall', 1, 1),
+('Swipe Strike', 'swipe-strike', 1, 1);
 SQL;
 
     // Split and execute statements

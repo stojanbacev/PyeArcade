@@ -16,7 +16,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 $dbPath = __DIR__ . '/../../api/db.php';
 
 if (!file_exists($dbPath)) {
-    // Fallback for local source (php/game_api.php and php/db.php in same dir)
+    // Fallback for local source (php/api.php and php/db.php in same dir)
     $dbPath = __DIR__ . '/db.php'; 
 }
 
@@ -37,29 +37,37 @@ function updateBoardHeartbeat($pdo, $id, $stateJson = null) {
     $gameType = (strpos($id, 'swipe_strike') !== false) ? 'swipe-strike' : 'neon-recall';
     
     // Check if board exists
-    $stmt = $pdo->prepare("SELECT id FROM game_boards WHERE id = ?");
+    $stmt = $pdo->prepare("SELECT board_id FROM game_boards WHERE board_id = ?");
     $stmt->execute([$id]);
     
     if ($stmt->fetch()) {
         // Update existing
         if ($stateJson !== null) {
-            $stmt = $pdo->prepare("UPDATE game_boards SET last_seen = NOW(), state_json = ? WHERE id = ?");
+            $stmt = $pdo->prepare("UPDATE game_boards SET last_seen = NOW(), status = 'online', state_json = ? WHERE board_id = ?");
             $stmt->execute([$stateJson, $id]);
         } else {
             // Just heartbeat
-            $stmt = $pdo->prepare("UPDATE game_boards SET last_seen = NOW() WHERE id = ?");
+            $stmt = $pdo->prepare("UPDATE game_boards SET last_seen = NOW(), status = 'online' WHERE board_id = ?");
             $stmt->execute([$id]);
         }
     } else {
         // Insert new
         $initialState = $stateJson ?: json_encode(["state" => "idle", "pattern" => [], "timestamp" => time() * 1000]);
-        $stmt = $pdo->prepare("INSERT INTO game_boards (id, game, state_json, last_seen) VALUES (?, ?, ?, NOW())");
-        $stmt->execute([$id, $gameType, $initialState]);
+        
+        // Lookup game_id from games table
+        $stmtGame = $pdo->prepare("SELECT id FROM games WHERE slug = ?");
+        $stmtGame->execute([$gameType]);
+        $gameRow = $stmtGame->fetch();
+        
+        if ($gameRow) {
+            $stmt = $pdo->prepare("INSERT INTO game_boards (board_id, game_id, state_json, last_seen, status) VALUES (?, ?, ?, NOW(), 'online')");
+            $stmt->execute([$id, $gameRow['id'], $initialState]);
+        }
     }
 }
 
 function getBoardState($pdo, $id) {
-    $stmt = $pdo->prepare("SELECT state_json FROM game_boards WHERE id = ?");
+    $stmt = $pdo->prepare("SELECT state_json FROM game_boards WHERE board_id = ?");
     $stmt->execute([$id]);
     $row = $stmt->fetch();
     return $row ? $row['state_json'] : null;
@@ -95,17 +103,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         // Strict check for specific board
         $targetBoard = isset($_GET['target']) ? $_GET['target'] : '';
         if ($targetBoard) {
-            $stmt = $pdo->prepare("SELECT last_seen FROM game_boards WHERE id = ?");
+            // Use DB time for consistency (avoid PHP vs MySQL time drift)
+            $stmt = $pdo->prepare("SELECT last_seen, TIMESTAMPDIFF(SECOND, last_seen, NOW()) as lag_seconds FROM game_boards WHERE board_id = ? AND last_seen > NOW() - INTERVAL 5 SECOND");
             $stmt->execute([$targetBoard]);
             $row = $stmt->fetch();
             
             if ($row) {
-                $lastSeen = strtotime($row['last_seen']);
-                // Strict 2 second timeout for "Live" check
-                if (time() - $lastSeen <= 2) {
-                    echo json_encode(['status' => 'online', 'lag' => time() - $lastSeen]);
-                    exit;
-                }
+                echo json_encode(['status' => 'online', 'lag' => $row['lag_seconds']]);
+                exit;
             }
         }
         echo json_encode(['status' => 'offline']);
@@ -113,8 +118,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     if ($action === 'list_boards') {
-        // Return list of active boards (seen in last 3 seconds)
-        $stmt = $pdo->query("SELECT id, game, last_seen FROM game_boards WHERE last_seen > NOW() - INTERVAL 3 SECOND");
+        // Return list of active boards (seen in last 5 seconds)
+        // Join with games table to get game slug for frontend compatibility
+        // And check for active sessions to mark occupied boards
+        $stmt = $pdo->query("
+            SELECT 
+                gb.board_id as id, 
+                g.slug as game, 
+                gb.last_seen,
+                MAX(CASE WHEN gs.id IS NOT NULL THEN 1 ELSE 0 END) as is_occupied
+            FROM game_boards gb
+            LEFT JOIN games g ON gb.game_id = g.id
+            LEFT JOIN game_sessions gs ON gb.board_id = gs.board_id 
+                AND gs.status = 'active' 
+                AND gs.ended_at IS NULL
+            WHERE gb.last_seen > NOW() - INTERVAL 5 SECOND
+            GROUP BY gb.board_id, g.slug, gb.last_seen
+        ");
         $activeBoards = $stmt->fetchAll();
         
         // Format for frontend
@@ -122,8 +142,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         foreach ($activeBoards as $board) {
              $result[] = [
                  'id' => $board['id'],
-                 'game' => $board['game'],
-                 'last_seen' => strtotime($board['last_seen'])
+                 'game' => $board['game'] ?? 'unknown',
+                 'last_seen' => strtotime($board['last_seen']),
+                 'is_occupied' => (bool)$board['is_occupied']
              ];
         }
         echo json_encode($result);

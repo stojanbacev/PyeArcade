@@ -61,7 +61,7 @@ export default function App() {
     };
 
     fetchBoards();
-    const interval = setInterval(fetchBoards, 5000); // Refresh every 5s
+    const interval = setInterval(fetchBoards, 2000); // Refresh every 2s
     return () => clearInterval(interval);
   }, [user]);
 
@@ -76,7 +76,7 @@ export default function App() {
         setSelectedGame(game);
         setCurrentView('instructions');
       } else {
-        alert("Board is offline or unresponsive! (Last seen > 2s ago)");
+        alert("Board is offline or unresponsive! (Last seen > 5s ago)");
         // Trigger a list refresh to remove it if it's truly gone
         const listResponse = await fetch('games/NeonRecall/api.php?action=list_boards');
         const listData = await listResponse.json();
@@ -111,8 +111,19 @@ export default function App() {
     }
 
     const result = await startSession(selectedGame.boardId, selectedGame.title);
+
     if (!result.success) {
-      alert("Could not start game session: " + result.message);
+      alert(result.message || "Could not start game session.");
+      // Refresh board list
+      try {
+        const listResponse = await fetch('games/NeonRecall/api.php?action=list_boards');
+        const listData = await listResponse.json();
+        setActiveBoards(Array.isArray(listData) ? listData : []);
+      } catch (e) { console.error(e); }
+      
+      // Kick back to home if failed
+      setCurrentView('home');
+      setSelectedGame(null);
       return;
     }
 
@@ -222,11 +233,15 @@ export default function App() {
             key={game.id}
             onClick={() => handleGameSelect(game)}
             style={{ backgroundColor: 'black' }}
-            className="group relative overflow-hidden bg-black rounded-2xl p-6 text-left border border-gray-700 transition-all active:scale-95 flex justify-between items-center hover:border-cyan-500 hover:shadow-[0_0_20px_rgba(0,229,255,0.2)] text-white shrink-0"
+            disabled={game.is_occupied}
+            className={`group relative overflow-hidden bg-black rounded-2xl p-6 text-left border border-gray-700 transition-all active:scale-95 flex justify-between items-center ${game.is_occupied ? 'opacity-50 cursor-not-allowed border-orange-900' : 'hover:border-cyan-500 hover:shadow-[0_0_20px_rgba(0,229,255,0.2)]'} text-white shrink-0`}
           >
             <div className="z-10 relative">
-              <h3 className="text-2xl font-bold text-white mb-1">{game.title}</h3>
-              <p className="text-gray-400 text-sm">{game.tagline}</p>
+              <div className="flex items-center gap-2 mb-1">
+                <h3 className="text-2xl font-bold text-white">{game.title}</h3>
+                {game.is_occupied && <span className="text-[10px] bg-orange-600 text-white px-2 py-0.5 rounded uppercase font-bold tracking-wider">Busy</span>}
+              </div>
+              <p className="text-gray-400 text-sm">{game.is_occupied ? 'Game in Progress' : game.tagline}</p>
             </div>
             <div className="flex gap-3 z-10 relative">
               {game.renderIcon ? game.renderIcon() : game.colors.map((color, i) => (

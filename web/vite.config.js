@@ -18,6 +18,7 @@ const copyPhpFiles = () => {
         { src: '../php/api.php', dest: 'dist/games/NeonRecall/api.php' },
         { src: '../php/db.php', dest: 'dist/api/db.php' },
         { src: '../php/auth.php', dest: 'dist/api/auth.php' },
+        { src: '../php/contact.php', dest: 'dist/api/contact.php' },
         { src: '../php/setup.php', dest: 'dist/api/setup.php' }
       ]
 

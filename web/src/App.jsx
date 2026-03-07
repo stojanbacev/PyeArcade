@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
-import { Gamepad2, Info, X, Play, LogOut, Lock } from 'lucide-react';
+import { Gamepad2, Info, X, Play, LogOut, Lock, Mail, CreditCard } from 'lucide-react';
 import NeonRecall from './games/NeonRecall/NeonRecall';
 import SwipeStrike from './games/SwipeStrike/SwipeStrike';
 import AuthPage from './components/AuthPage.jsx';
 import ChangePassword from './components/ChangePassword.jsx';
+import ContactPage from './components/ContactPage.jsx';
 import { useAuth } from './context/AuthContext.jsx';
 
 const GAME_COMPONENTS = {
@@ -170,6 +171,10 @@ export default function App() {
     return <ChangePassword onDone={() => setCurrentView('home')} />;
   }
 
+  if (currentView === 'contact') {
+    return <ContactPage onBack={() => setCurrentView('home')} />;
+  }
+
   const renderHome = () => (
     <div className="flex flex-col h-[100dvh] w-screen bg-gray-900 text-white overflow-hidden font-sans">
       {/* Main Branding Header */}
@@ -198,6 +203,13 @@ export default function App() {
         <div className="flex items-center gap-3">
           {user && (
             <>
+              <button
+                onClick={() => setCurrentView('contact')}
+                className="p-2 rounded-full bg-gray-700 hover:bg-gray-600 transition-colors"
+                title="Contact Support"
+              >
+                <Mail size={20} className="text-cyan-400" />
+              </button>
               <button
                 onClick={() => setCurrentView('change_password')}
                 className="p-2 rounded-full bg-gray-700 hover:bg-gray-600 transition-colors"

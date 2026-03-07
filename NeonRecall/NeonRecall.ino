@@ -12,7 +12,7 @@
 #define LED_COUNT  (NUM_JEWELS * LEDS_PER_JEWEL) 
 
 // Game Settings
-String boardId = "neon_recall_1";
+String boardId = "neon_recall_2";
 String apiUrlBase = "https://www.pyeclub.com/pyearcade/games/NeonRecall/api.php?board=";
 String fullApiUrl = ""; // Populated in setup
 
@@ -105,11 +105,15 @@ void networkTask(void * pvParameters) {
   WiFiClientSecure client;
   client.setInsecure();
   HTTPClient http;
-  http.setReuse(true); // Keep connection open if possible
-
+  
+  // We want to reuse the connection, so we initialize outside if possible or just rely on begin() handling it.
+  // Note: HTTPClient::begin() usually resets internal state, but setReuse(true) tells it to keep the socket.
+  
   for(;;) {
     if (WiFi.status() == WL_CONNECTED) {
+      
       http.begin(client, fullApiUrl.c_str());
+      http.setReuse(true); // Keep-Alive
       
       int httpResponseCode = http.GET();
       if (httpResponseCode > 0) {
@@ -146,11 +150,23 @@ void networkTask(void * pvParameters) {
             }
             xSemaphoreGive(stateMutex);
           }
+        } else {
+           // JSON Error
+           Serial.println("JSON Parse Error");
         }
+        // Success! Do NOT call http.end() to keep connection open
+        
+      } else {
+        // HTTP Error
+        Serial.print("HTTP Error: "); Serial.println(httpResponseCode);
+        http.end(); // Force close to reset connection state
       }
-      http.end();
+      
+    } else {
+       // No WiFi
+       vTaskDelay(1000 / portTICK_PERIOD_MS);
     }
-    vTaskDelay(500 / portTICK_PERIOD_MS);
+    vTaskDelay(150 / portTICK_PERIOD_MS);
   }
 }
 
@@ -226,6 +242,7 @@ void resetAnimations() {
 // Internal state tracking for loop
 String lastProcessedState = "";
 long long lastProcessedTimestamp = -1;
+unsigned long waitingStateStart = 0; // Track how long we've been waiting
 
 void loop() {
   // 1. Process Network State Updates
@@ -244,10 +261,6 @@ void loop() {
                localPatternLen = sharedPatternLen;
                for(int i=0; i<localPatternLen; i++) localPattern[i] = sharedPattern[i];
                patternPending = false;
-               
-               // If we received a pattern, we treat it as a special state "showing_pattern"
-               // even if the server state is technically "idle" or something else.
-               // But usually the server sets state to "showing_pattern".
             }
         }
      }
@@ -259,6 +272,27 @@ void loop() {
       resetAnimations();
       Serial.print("State Changed to: ");
       Serial.println(lastProcessedState);
+      
+      // Start timer if entering waiting state
+      if (lastProcessedState == "waiting_for_player") {
+          waitingStateStart = millis();
+      } else {
+          waitingStateStart = 0;
+      }
+  }
+  
+  // 2a. Safety Timeout for Waiting State (1 Minute)
+  if (lastProcessedState == "waiting_for_player" && waitingStateStart != 0) {
+      if (millis() - waitingStateStart > 60000) { // 60 seconds
+          Serial.println("Timeout: Forced return to IDLE from waiting state.");
+          lastProcessedState = "idle";
+          resetAnimations();
+          // Optionally update global state to prevent rubber-banding until next server update
+          if (xSemaphoreTake(stateMutex, 10)) {
+              currentState = "idle";
+              xSemaphoreGive(stateMutex);
+          }
+      }
   }
 
   // 3. Run Animation Logic based on current state

@@ -90,6 +90,7 @@ export const AuthProvider = ({ children }) => {
         body: JSON.stringify({ board_id: boardId, game_name: gameName })
       });
       const data = await res.json();
+      
       if (data.success) {
         setUser(prev => ({ ...prev, credits: data.credits }));
         return { success: true, sessionId: data.session_id };

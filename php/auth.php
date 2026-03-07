@@ -111,7 +111,7 @@ if ($action === 'transaction' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $stmt->execute([$amount, $_SESSION['user_id']]);
 
     // record transaction
-    $stmt2 = $pdo->prepare("INSERT INTO transactions (user_id, amount, description) VALUES (?, ?, ?)");
+    $stmt2 = $pdo->prepare("INSERT INTO transactions (user_id, amount, type, description) VALUES (?, ?, 'adjustment', ?)");
     $stmt2->execute([$_SESSION['user_id'], $amount, $description]);
 
     // return updated balance
@@ -131,6 +131,20 @@ if ($action === 'start_session' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $boardId = isset($data['board_id']) ? $data['board_id'] : 'unknown';
     $gameName = isset($data['game_name']) ? $data['game_name'] : 'Unknown Game';
     
+    // Check if board is actually online (strict 1s check)
+    $stmtBoard = $pdo->prepare("SELECT last_seen FROM game_boards WHERE board_id = ? AND last_seen > NOW() - INTERVAL 1 SECOND");
+    $stmtBoard->execute([$boardId]);
+    if (!$stmtBoard->fetch()) {
+        sendResponse(false, "Board is currently offline. Please try again.");
+    }
+
+    // Check if board is occupied (active session exists)
+    $stmtOccupied = $pdo->prepare("SELECT id FROM game_sessions WHERE board_id = ? AND status = 'active' AND ended_at IS NULL");
+    $stmtOccupied->execute([$boardId]);
+    if ($stmtOccupied->fetch()) {
+        sendResponse(false, "Game in Progress. Try again later.");
+    }
+
     // Check balance
     $stmt = $pdo->prepare("SELECT credits FROM users WHERE id = ?");
     $stmt->execute([$_SESSION['user_id']]);
@@ -145,11 +159,11 @@ if ($action === 'start_session' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $stmt->execute([$_SESSION['user_id']]);
 
     // Record transaction
-    $stmt = $pdo->prepare("INSERT INTO transactions (user_id, amount, description) VALUES (?, -1, ?)");
+    $stmt = $pdo->prepare("INSERT INTO transactions (user_id, amount, type, description) VALUES (?, -1, 'game_play', ?)");
     $stmt->execute([$_SESSION['user_id'], "Played $gameName"]);
 
     // Create session
-    $stmt = $pdo->prepare("INSERT INTO game_sessions (user_id, board_id, score, started_at) VALUES (?, ?, 0, NOW())");
+    $stmt = $pdo->prepare("INSERT INTO game_sessions (user_id, board_id, score, status, started_at) VALUES (?, ?, 0, 'active', NOW())");
     $stmt->execute([$_SESSION['user_id'], $boardId]);
     $sessionId = $pdo->lastInsertId();
 

@@ -15,7 +15,7 @@ const copyPhpFiles = () => {
     closeBundle() {
       const games = [
         // Map the generic game API to the specific game endpoint
-        { src: '../php/game_api.php', dest: 'dist/games/NeonRecall/api.php' },
+        { src: '../php/api.php', dest: 'dist/games/NeonRecall/api.php' },
         { src: '../php/db.php', dest: 'dist/api/db.php' },
         { src: '../php/auth.php', dest: 'dist/api/auth.php' },
         { src: '../php/setup.php', dest: 'dist/api/setup.php' }

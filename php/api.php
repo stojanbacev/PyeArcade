@@ -70,7 +70,38 @@ function getBoardState($pdo, $id) {
     $stmt = $pdo->prepare("SELECT state_json FROM game_boards WHERE board_id = ?");
     $stmt->execute([$id]);
     $row = $stmt->fetch();
-    return $row ? $row['state_json'] : null;
+    
+    if ($row && $row['state_json']) {
+        // AUTO-TIMEOUT LOGIC
+        // If state hasn't changed in > 45 seconds, assume abandoned and reset to idle.
+        // This cleans up stuck sessions from disconnected clients.
+        $state = json_decode($row['state_json'], true);
+        if ($state && isset($state['state']) && $state['state'] !== 'idle') {
+            $lastTime = isset($state['timestamp']) ? $state['timestamp'] : 0;
+            
+            // Current Time (ms) - Last Update (ms) > 45000ms
+            if ((time() * 1000) - $lastTime > 45000) {
+                 // Reset to idle
+                 $idleState = json_encode([
+                     "state" => "idle",
+                     "pattern" => [],
+                     "timestamp" => time() * 1000
+                 ]);
+                 
+                 // Update board state
+                 $stmt = $pdo->prepare("UPDATE game_boards SET state_json = ? WHERE board_id = ?");
+                 $stmt->execute([$idleState, $id]);
+                 
+                 // Close any hanging session for this board
+                 $stmtSession = $pdo->prepare("UPDATE game_sessions SET status = 'abandoned', ended_at = NOW() WHERE board_id = ? AND status = 'active'");
+                 $stmtSession->execute([$id]);
+                 
+                 return $idleState;
+            }
+        }
+        return $row['state_json'];
+    }
+    return null;
 }
 
 // --- MAIN LOGIC ---

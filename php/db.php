@@ -1,11 +1,19 @@
 <?php
 // Central Database Connection
 
-$host = 'localhost'; // Usually localhost, change if remote
-$db   = 'pyearcade';
-$user = 'pyearcadeuser';
-$pass = '@Selonegorci03';
-$charset = 'utf8mb4';
+// Load environment variables if .env exists
+if (file_exists(__DIR__ . '/.env')) {
+    $env = parse_ini_file(__DIR__ . '/.env');
+    foreach ($env as $key => $value) {
+        putenv("$key=$value");
+    }
+}
+
+$host = getenv('DB_HOST') ?: 'localhost'; 
+$db   = getenv('DB_NAME') ?: 'pyearcade';
+$user = getenv('DB_USER') ?: 'pyearcadeuser';
+$pass = getenv('DB_PASS') ?: '@Selonegorci03';
+$charset = getenv('DB_CHARSET') ?: 'utf8mb4';
 
 $dsn = "mysql:host=$host;dbname=$db;charset=$charset";
 $options = [

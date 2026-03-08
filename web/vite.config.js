@@ -16,11 +16,14 @@ const copyPhpFiles = () => {
       const games = [
         // Map the generic game API to the specific game endpoint
         { src: '../php/api.php', dest: 'dist/games/NeonRecall/api.php' },
+        { src: '../php/api.php', dest: 'dist/games/SwipeStrike/api.php' },
         { src: '../php/db.php', dest: 'dist/api/db.php' },
         { src: '../php/auth.php', dest: 'dist/api/auth.php' },
         { src: '../php/contact.php', dest: 'dist/api/contact.php' },
         { src: '../php/setup.php', dest: 'dist/api/setup.php' },
-        { src: '../php/process_payment.php', dest: 'dist/api/process_payment.php' }
+        { src: '../php/process_payment.php', dest: 'dist/api/process_payment.php' },
+        // Copy .env if it exists (for easy deployment)
+        { src: '../php/.env', dest: 'dist/api/.env' }
       ]
 
       games.forEach(game => {

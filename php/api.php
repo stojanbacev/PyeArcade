@@ -33,8 +33,13 @@ $action = isset($_GET['action']) ? $_GET['action'] : '';
 
 // Helper to update/check board state
 function updateBoardHeartbeat($pdo, $id, $stateJson = null) {
-    // Determine game type from ID (simple inference)
-    $gameType = (strpos($id, 'swipe_strike') !== false) ? 'swipe-strike' : 'neon-recall';
+    // Determine game type from ID or directory
+    $dirName = basename(__DIR__);
+    $gameSlug = ($dirName === 'SwipeStrike') ? 'swipe-strike' : 'neon-recall';
+
+    // Override if ID explicitly contains game type (e.g. "swipe_strike_1")
+    if (strpos($id, 'swipe_strike') !== false) $gameSlug = 'swipe-strike';
+    if (strpos($id, 'neon_recall') !== false) $gameSlug = 'neon-recall';
     
     // Check if board exists
     $stmt = $pdo->prepare("SELECT board_id FROM game_boards WHERE board_id = ?");
@@ -56,7 +61,7 @@ function updateBoardHeartbeat($pdo, $id, $stateJson = null) {
         
         // Lookup game_id from games table
         $stmtGame = $pdo->prepare("SELECT id FROM games WHERE slug = ?");
-        $stmtGame->execute([$gameType]);
+        $stmtGame->execute([$gameSlug]);
         $gameRow = $stmtGame->fetch();
         
         if ($gameRow) {

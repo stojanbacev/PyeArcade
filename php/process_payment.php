@@ -160,13 +160,52 @@ if ($locationId) {
     $payload['location_id'] = $locationId;
 }
 
-$ch = curl_init('https://connect.squareupsandbox.com/v2/payments');
+// Function to manually parse .env if parse_ini_file is disabled
+if (!function_exists('loadEnv')) {
+    function loadEnv($path) {
+        if (!file_exists($path)) return false;
+        $lines = file($path, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+        if (!$lines) return false;
+        
+        foreach ($lines as $line) {
+            $line = trim($line);
+            if (!$line || strpos($line, '#') === 0) continue;
+            
+            // Simple key=value parse
+            $parts = explode('=', $line, 2);
+            if (count($parts) === 2) {
+                $name = trim($parts[0]);
+                $value = trim($parts[1]);
+                putenv("$name=$value");
+                $_ENV[$name] = $value;
+                $_SERVER[$name] = $value;
+            }
+        }
+        return true;
+    }
+}
+
+// Load .env variables (already loaded by db.php include, but just in case)
+if (!loadEnv(__DIR__ . '/.env')) {
+    loadEnv(__DIR__ . '/../.env');
+}
+
+$squareUrl = getenv('SQUARE_API_URL') ?: 'https://connect.squareup.com/v2/payments';
+$squareToken = getenv('SQUARE_ACCESS_TOKEN');
+
+if (!$squareToken) {
+    http_response_code(500);
+    echo json_encode(['success' => false, 'message' => 'Server Configuration Error: Square Token missing']);
+    exit;
+}
+
+$ch = curl_init($squareUrl);
 curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
 curl_setopt($ch, CURLOPT_POST, true);
 curl_setopt($ch, CURLOPT_HTTPHEADER, [
     'Content-Type: application/json',
     'Accept: application/json',
-    'Authorization: Bearer EAAAl6pdUqEy0ppddpQOW4iQMAHZJt-h_pb-nDMeTjJKUoaY4waLSMSgfsuUzs4w',
+    'Authorization: Bearer ' . $squareToken,
 ]);
 curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($payload));
 

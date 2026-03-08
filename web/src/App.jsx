@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
-import { Gamepad2, Info, X, Play, LogOut, Lock, Mail, CreditCard } from 'lucide-react';
+import { Gamepad2, Info, X, Play, LogOut, Lock, Mail, CircleDollarSign } from 'lucide-react';
 import NeonRecall from './games/NeonRecall/NeonRecall';
 import SwipeStrike from './games/SwipeStrike/SwipeStrike';
 import AuthPage from './components/AuthPage.jsx';
 import ChangePassword from './components/ChangePassword.jsx';
 import ContactPage from './components/ContactPage.jsx';
+import CreditReload from './components/CreditReload.jsx';
 import { useAuth } from './context/AuthContext.jsx';
 
 const GAME_COMPONENTS = {
@@ -35,12 +36,13 @@ const GAME_TEMPLATES = {
 };
 
 export default function App() {
-  const { user, logout, startSession, loading: authLoading } = useAuth();
+  const { user, logout, startSession, loading: authLoading, refreshUser } = useAuth();
   const [currentView, setCurrentView] = useState('home');
   const [currentSessionId, setCurrentSessionId] = useState(null);
   const [selectedGame, setSelectedGame] = useState(null);
   const [activeBoards, setActiveBoards] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [purchaseSummary, setPurchaseSummary] = useState(null);
 
   // Fetch active boards from API (only when authenticated)
   React.useEffect(() => {
@@ -175,6 +177,50 @@ export default function App() {
     return <ContactPage onBack={() => setCurrentView('home')} />;
   }
 
+  if (currentView === 'buy_credits') {
+    return (
+      <div className="relative">
+        <CreditReload
+          onBack={() => {
+            setPurchaseSummary(null);
+            setCurrentView('home');
+          }}
+          onSuccess={(summary) => {
+            // Refresh user info to get updated credits
+            refreshUser?.();
+            setPurchaseSummary(summary);
+          }}
+        />
+
+        {purchaseSummary && (
+          <div className="fixed inset-0 bg-black/75 flex items-center justify-center p-6 z-50">
+            <div className="w-full max-w-md bg-gray-900 border border-gray-700 rounded-2xl p-6 space-y-4">
+              <h2 className="text-2xl font-bold text-white">Purchase Complete</h2>
+              <p className="text-gray-300">
+                You purchased <span className="font-bold text-cyan-300">{purchaseSummary.creditsAdded}</span> credits for{' '}
+                <span className="font-bold text-cyan-300">${purchaseSummary.amount.toFixed(2)}</span>.
+              </p>
+              {purchaseSummary.newBalance != null && (
+                <p className="text-gray-300">
+                  Your new balance is <span className="font-bold text-cyan-300">{purchaseSummary.newBalance}</span> credits.
+                </p>
+              )}
+              <button
+                onClick={() => {
+                  setPurchaseSummary(null);
+                  setCurrentView('home');
+                }}
+                className="w-full rounded-lg bg-cyan-500 py-3 font-bold text-black hover:bg-cyan-400"
+              >
+                Back to Arcade
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
   const renderHome = () => (
     <div className="flex flex-col h-[100dvh] w-screen bg-gray-900 text-white overflow-hidden font-sans">
       {/* Main Branding Header */}
@@ -203,6 +249,13 @@ export default function App() {
         <div className="flex items-center gap-3">
           {user && (
             <>
+              <button
+                onClick={() => setCurrentView('buy_credits')}
+                className="p-2 rounded-full bg-gray-700 hover:bg-gray-600 transition-colors"
+                title="Buy Credits"
+              >
+                <CircleDollarSign size={20} className="text-cyan-400" />
+              </button>
               <button
                 onClick={() => setCurrentView('contact')}
                 className="p-2 rounded-full bg-gray-700 hover:bg-gray-600 transition-colors"

@@ -19,7 +19,8 @@ const copyPhpFiles = () => {
         { src: '../php/db.php', dest: 'dist/api/db.php' },
         { src: '../php/auth.php', dest: 'dist/api/auth.php' },
         { src: '../php/contact.php', dest: 'dist/api/contact.php' },
-        { src: '../php/setup.php', dest: 'dist/api/setup.php' }
+        { src: '../php/setup.php', dest: 'dist/api/setup.php' },
+        { src: '../php/process_payment.php', dest: 'dist/api/process_payment.php' }
       ]
 
       games.forEach(game => {

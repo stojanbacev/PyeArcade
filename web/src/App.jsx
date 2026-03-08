@@ -364,7 +364,15 @@ export default function App() {
           Start Game (1 Credit)
         </button>
         {user.credits < 1 && (
-             <p className="text-center text-red-400 mt-2 text-sm">Not enough credits!</p>
+             <div className="text-center mt-3">
+               <p className="text-red-400 text-sm mb-1">Not enough credits!</p>
+               <button 
+                 onClick={() => setCurrentView('buy_credits')}
+                 className="text-cyan-400 font-bold underline text-sm hover:text-cyan-300 transition-colors uppercase tracking-wide"
+               >
+                 Reload Here &rarr;
+               </button>
+             </div>
         )}
       </footer>
     </div>

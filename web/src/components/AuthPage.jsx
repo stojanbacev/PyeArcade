@@ -42,8 +42,17 @@ export default function AuthPage() {
       </header>
 
       <main className="flex-1 flex items-center justify-center p-6 overflow-y-auto">
-      <div className="w-full max-w-md p-8 space-y-6 bg-gray-800 rounded-xl shadow-lg">
-        <h2 className="text-3xl font-extrabold text-center">
+        <div className="w-full max-w-md p-8 space-y-6 bg-gray-800 rounded-xl shadow-lg border border-gray-700 relative overflow-hidden">
+          
+          {mode === 'register' && (
+            <div className="absolute top-0 left-0 w-full bg-gradient-to-r from-pink-600 via-purple-600 to-cyan-600 p-2 text-center shadow-lg animate-pulse">
+               <p className="font-black text-white text-xs uppercase tracking-widest">
+                 🔥 Limited Offer: Get 1 FREE GAME! 🔥
+               </p>
+            </div>
+          )}
+
+          <h2 className="text-3xl font-extrabold text-center mt-6">
           {mode === 'login' ? 'Sign in to your account' : 'Create a new account'}
         </h2>
         {error && <p className="text-red-400 text-center">{error}</p>}
@@ -104,24 +113,26 @@ export default function AuthPage() {
           </div>
         </form>
 
-        <div className="text-center text-sm">
+        <div className="text-center text-sm text-gray-400">
           {mode === 'login' ? (
-            <>Don't have an account?{' '}
-            <button
-              className="text-cyan-400 hover:underline"
-              onClick={() => { setMode('register'); setError(null); }}
-            >
-              Sign up
-            </button>
+            <>
+              Don't have an account?{' '}
+              <button
+                className="text-cyan-400 hover:text-cyan-300 font-bold transition-colors"
+                onClick={() => { setMode('register'); setError(null); }}
+              >
+                Sign up & Play FREE!
+              </button>
             </>
           ) : (
-            <>Already have an account?{' '}
-            <button
-              className="text-cyan-400 hover:underline"
-              onClick={() => { setMode('login'); setError(null); }}
-            >
-              Log in
-            </button>
+            <>
+              Already have an account?{' '}
+              <button
+                className="text-cyan-400 hover:text-cyan-300 transition-colors"
+                onClick={() => { setMode('login'); setError(null); }}
+              >
+                Log in
+              </button>
             </>
           )}
         </div>

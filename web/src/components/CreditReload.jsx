@@ -3,13 +3,13 @@ import { payments as createSquarePayments } from '@square/web-sdk';
 import { X, CreditCard as CreditCardIcon, Apple, Globe } from 'lucide-react';
 import { useAuth } from '../context/AuthContext.jsx';
 
-const SQUARE_APPLICATION_ID = 'sandbox-sq0idb-Zjxl-Se1TSlNgY3j9YK5Iw';
+const SQUARE_APPLICATION_ID = 'sq0idp-HbFzCpu8_TQIcGEwyKuI4A';
 
 const CREDIT_PACKAGES = [
-  { credits: 10, price: 5.0 },
-  { credits: 25, price: 10.0 },
-  { credits: 60, price: 20.0 },
-  { credits: 150, price: 50.0 },
+  { credits: 3, price: 3.0 },
+  { credits: 6, price: 5.0 },
+  { credits: 15, price: 10.0 },
+  { credits: 40, price: 20.0 },
 ];
 
 function formatMoney(amount) {

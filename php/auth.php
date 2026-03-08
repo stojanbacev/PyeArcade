@@ -42,13 +42,13 @@ try {
 
     // Hash password and insert
     $hash = password_hash($password, PASSWORD_DEFAULT);
-    // Give 10 free credits on signup
-    $stmt = $pdo->prepare("INSERT INTO users (email, password_hash, credits) VALUES (?, ?, 10)");
+    // Give 1 free credit (game) on signup
+    $stmt = $pdo->prepare("INSERT INTO users (email, password_hash, credits) VALUES (?, ?, 1)");
     
     if ($stmt->execute([$email, $hash])) {
         // Auto login after register
         $_SESSION['user_id'] = $pdo->lastInsertId();
-        sendResponse(true, "Registration successful", ["user" => ["email" => $email, "credits" => 10]]);
+        sendResponse(true, "Registration successful", ["user" => ["email" => $email, "credits" => 1]]);
     } else {
         sendResponse(false, "Registration failed");
     }

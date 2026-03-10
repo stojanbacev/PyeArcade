@@ -4,7 +4,7 @@ import { X, Trophy, Play, RotateCcw } from 'lucide-react';
 import confetti from 'canvas-confetti';
 
 // --- CONFIGURATION ---
-const API_URL = 'games/NeonRecall/api.php'; // Relative to the base index.html
+const API_URL = 'api/api.php'; // Relative to the base index.html
 const FLASH_DURATION = 500; // ms per flash
 const PAUSE_DURATION = 250; // ms between flashes
 const INPUT_TIMEOUT = 20000; // 20s to press a button before game over
@@ -248,6 +248,34 @@ export default function NeonRecall({ onExit, boardId = 'neon_recall_1', sessionI
       if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
     };
   }, []);
+
+  // Start the game automatically when the component mounts
+  useEffect(() => {
+    startGame();
+  }, []);
+
+  // Poll to see if the server has killed our session (e.g. from timeout)
+  useEffect(() => {
+    if (!sessionId) return;
+
+    const interval = setInterval(async () => {
+        try {
+            const res = await fetch(`api/auth.php?action=check_session_status&session_id=${sessionId}`);
+            const data = await res.json();
+            if (!data.success) {
+                // The server has killed our session.
+                clearInterval(interval);
+                alert("Your session has expired due to inactivity.");
+                onExit();
+            }
+        } catch (err) {
+            console.error("Session check failed:", err);
+            clearInterval(interval); // Stop polling on error
+        }
+    }, 5000); // Check every 5 seconds
+
+    return () => clearInterval(interval);
+  }, [sessionId, onExit]);
 
   // Effect for confetti on success and fail
   useEffect(() => {

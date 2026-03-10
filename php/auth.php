@@ -131,17 +131,24 @@ if ($action === 'start_session' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $boardId = isset($data['board_id']) ? $data['board_id'] : 'unknown';
     $gameName = isset($data['game_name']) ? $data['game_name'] : 'Unknown Game';
     
-    // Check if board is actually online (strict 1s check)
-    $stmtBoard = $pdo->prepare("SELECT last_seen FROM game_boards WHERE board_id = ? AND last_seen > NOW() - INTERVAL 1 SECOND");
+    // Check if board is available and online in one atomic query to prevent timezone bugs
+    $stmtBoard = $pdo->prepare("SELECT status FROM game_boards WHERE board_id = ? AND last_seen > NOW() - INTERVAL 5 SECOND");
     $stmtBoard->execute([$boardId]);
-    if (!$stmtBoard->fetch()) {
+    $board = $stmtBoard->fetch();
+
+    if (!$board) {
+        // This handles both "board does not exist" and "board is offline"
         sendResponse(false, "Board is currently offline. Please try again.");
     }
+    // Check if board is available and online in one atomic query
+    $stmtBoard = $pdo->prepare("SELECT is_busy FROM game_boards WHERE board_id = ? AND last_seen > NOW() - INTERVAL 5 SECOND");
+    $stmtBoard->execute([$boardId]);
+    $board = $stmtBoard->fetch();
 
-    // Check if board is occupied (active session exists)
-    $stmtOccupied = $pdo->prepare("SELECT id FROM game_sessions WHERE board_id = ? AND status = 'active' AND ended_at IS NULL");
-    $stmtOccupied->execute([$boardId]);
-    if ($stmtOccupied->fetch()) {
+    if (!$board) {
+        sendResponse(false, "Board is currently offline. Please try again.");
+    }
+    if ($board['is_busy']) {
         sendResponse(false, "Game in Progress. Try again later.");
     }
 
@@ -162,10 +169,19 @@ if ($action === 'start_session' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $stmt = $pdo->prepare("INSERT INTO transactions (user_id, amount, type, description) VALUES (?, -1, 'game_play', ?)");
     $stmt->execute([$_SESSION['user_id'], "Played $gameName"]);
 
-    // Create session
+    // Create session (For history/scoring)
     $stmt = $pdo->prepare("INSERT INTO game_sessions (user_id, board_id, score, status, started_at) VALUES (?, ?, 0, 'active', NOW())");
     $stmt->execute([$_SESSION['user_id'], $boardId]);
     $sessionId = $pdo->lastInsertId();
+
+    // RESET the board's state_json AND SET THE BUSY LOCK
+    $freshState = json_encode([
+        "state" => "idle",
+        "pattern" => [],
+        "timestamp" => sprintf('%.0f', microtime(true) * 1000)
+    ]);
+    $stmtBoardReset = $pdo->prepare("UPDATE game_boards SET state_json = ?, last_seen = NOW(), is_busy = TRUE WHERE board_id = ?");
+    $stmtBoardReset->execute([$freshState, $boardId]);
 
     sendResponse(true, "Session started", ["session_id" => $sessionId, "credits" => $currentCredits - 1]);
 }
@@ -180,12 +196,47 @@ if ($action === 'end_session' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $score = isset($data['score']) ? (int)$data['score'] : 0;
     
     if ($sessionId > 0) {
+        // Find the board_id associated with this session to release the lock
+        $stmtBoard = $pdo->prepare("SELECT board_id FROM game_sessions WHERE id = ? AND user_id = ?");
+        $stmtBoard->execute([$sessionId, $_SESSION['user_id']]);
+        $session_board_id = $stmtBoard->fetchColumn();
+
         // Update session
-        $stmt = $pdo->prepare("UPDATE game_sessions SET score = ?, ended_at = NOW() WHERE id = ? AND user_id = ?");
+        $stmt = $pdo->prepare("UPDATE game_sessions SET score = ?, status = 'completed', ended_at = NOW() WHERE id = ? AND user_id = ?");
         $stmt->execute([$score, $sessionId, $_SESSION['user_id']]);
+        
+        // RELEASE THE BOARD LOCK
+        if ($session_board_id) {
+            $stmtUnlock = $pdo->prepare("UPDATE game_boards SET is_busy = FALSE WHERE board_id = ?");
+            $stmtUnlock->execute([$session_board_id]);
+        }
+        
         sendResponse(true, "Session ended", ["score" => $score]);
     }
     sendResponse(false, "Invalid session ID");
+}
+
+// CHECK SESSION STATUS
+if ($action === 'check_session_status') {
+    if (!isset($_SESSION['user_id'])) {
+        sendResponse(false, "Not authenticated");
+    }
+
+    $sessionId = isset($_GET['session_id']) ? (int)$_GET['session_id'] : 0;
+
+    if ($sessionId > 0) {
+        $stmt = $pdo->prepare("SELECT status FROM game_sessions WHERE id = ? AND user_id = ?");
+        $stmt->execute([$sessionId, $_SESSION['user_id']]);
+        $session = $stmt->fetch();
+
+        if ($session && $session['status'] === 'active') {
+            sendResponse(true, "Session is active.");
+        } else {
+            sendResponse(false, "Session is not active or has expired.");
+        }
+    } else {
+        sendResponse(false, "Invalid session ID.");
+    }
 }
 
 // CHANGE PASSWORD

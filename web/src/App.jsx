@@ -53,7 +53,7 @@ export default function App() {
     }
     const fetchBoards = async () => {
       try {
-        const response = await fetch('games/NeonRecall/api.php?action=list_boards');
+        const response = await fetch('api/api.php?action=list_boards');
         const data = await response.json();
         setActiveBoards(Array.isArray(data) ? data : []);
       } catch (err) {
@@ -72,7 +72,7 @@ export default function App() {
   const handleGameSelect = async (game) => {
     try {
       // Perform strict active check (must be seen in last 2 seconds)
-      const response = await fetch(`games/NeonRecall/api.php?action=check_status&target=${game.boardId}`);
+      const response = await fetch(`api/api.php?action=check_status&target=${game.boardId}`);
       const statusData = await response.json();
       
       if (statusData.status === 'online') {
@@ -81,7 +81,7 @@ export default function App() {
       } else {
         alert("Board is offline or unresponsive! (Last seen > 5s ago)");
         // Trigger a list refresh to remove it if it's truly gone
-        const listResponse = await fetch('games/NeonRecall/api.php?action=list_boards');
+        const listResponse = await fetch('api/api.php?action=list_boards');
         const listData = await listResponse.json();
         setActiveBoards(Array.isArray(listData) ? listData : []);
       }
@@ -104,6 +104,7 @@ export default function App() {
       componentId: templateId,
       boardId: board.id,
       title: `${template.title} - ${suffix}`, 
+      is_occupied: board.is_occupied
     };
   });
 
@@ -119,7 +120,7 @@ export default function App() {
       alert(result.message || "Could not start game session.");
       // Refresh board list
       try {
-        const listResponse = await fetch('games/NeonRecall/api.php?action=list_boards');
+        const listResponse = await fetch('api/api.php?action=list_boards');
         const listData = await listResponse.json();
         setActiveBoards(Array.isArray(listData) ? listData : []);
       } catch (e) { console.error(e); }
@@ -137,7 +138,11 @@ export default function App() {
         await document.documentElement.requestFullscreen();
       }
       if (window.screen && window.screen.orientation && window.screen.orientation.lock) {
-        await window.screen.orientation.lock('landscape');
+        if (selectedGame.componentId === 'swipe-strike') {
+          await window.screen.orientation.lock('portrait');
+        } else {
+          await window.screen.orientation.lock('landscape');
+        }
       }
     } catch (err) {
       console.warn("Fullscreen or Orientation lock not supported/allowed by browser.", err);

@@ -23,7 +23,7 @@ const GAME_TEMPLATES = {
   'swipe-strike': {
     title: 'Swipe Strike',
     tagline: 'Pattern Unlock',
-    description: 'Swipe to connect the nodes in the correct pattern. Speed and accuracy are key to unlocking the high score!',
+    description: 'Watch the light sequence on the physical board. Using your phone, swipe to connect the nodes in the correct pattern. You have 20 seconds per turn!',
     colors: ['bg-pink-500', 'bg-cyan-400'],
     renderIcon: () => (
       <div className="grid grid-cols-3 gap-2 bg-gray-900/50 p-2 rounded-lg border border-gray-700">
@@ -43,6 +43,42 @@ export default function App() {
   const [activeBoards, setActiveBoards] = useState([]);
   const [loading, setLoading] = useState(true);
   const [purchaseSummary, setPurchaseSummary] = useState(null);
+
+  // Set a data-attribute on the body to track the current view, avoiding state closure issues.
+  React.useEffect(() => {
+    document.body.setAttribute('data-view', currentView);
+  }, [currentView]);
+
+  // This effect runs once to set up the global back button handler.
+  React.useEffect(() => {
+    const onPopState = () => {
+      // Read the current view directly from the DOM to get the most up-to-date value.
+      const view = document.body.getAttribute('data-view');
+      
+      if (view !== 'home') {
+        setCurrentView('home');
+      } else {
+        if (!window.confirm('Do you want to exit the app?')) {
+          // If the user cancels, push a new history state to prevent leaving.
+          window.history.pushState({view: 'home'}, '', window.location.href);
+        }
+        // If the user confirms, do nothing and let the browser's back navigation complete.
+      }
+    };
+
+    // On page load, wait a moment before pushing the state.
+    // This helps avoid race conditions with the browser's load events on reload.
+    const timerId = setTimeout(() => {
+      window.history.pushState({view: 'home'}, '', window.location.href);
+    }, 100);
+    
+    window.addEventListener('popstate', onPopState);
+    
+    return () => {
+      clearTimeout(timerId);
+      window.removeEventListener('popstate', onPopState);
+    };
+  }, []);
 
   // Fetch active boards from API (only when authenticated)
   React.useEffect(() => {

@@ -11,14 +11,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 }
 
 // Database Connection
-// Relative path assumes this file is deployed at /games/GameName/api.php (dist)
-// and db.php is at /api/db.php
-$dbPath = __DIR__ . '/../../api/db.php';
-
-if (!file_exists($dbPath)) {
-    // Fallback for local source (php/api.php and php/db.php in same dir)
-    $dbPath = __DIR__ . '/db.php'; 
-}
+// Assuming this file is deployed at /api/api.php
+$dbPath = __DIR__ . '/db.php';
 
 if (!file_exists($dbPath)) {
     http_response_code(500);
@@ -33,9 +27,8 @@ $action = isset($_GET['action']) ? $_GET['action'] : '';
 
 // Helper to update/check board state
 function updateBoardHeartbeat($pdo, $id, $stateJson = null) {
-    // Determine game type from ID or directory
-    $dirName = basename(__DIR__);
-    $gameSlug = ($dirName === 'SwipeStrike') ? 'swipe-strike' : 'neon-recall';
+    // Default to neon-recall, then override if explicitly containing game type
+    $gameSlug = 'neon-recall';
 
     // Override if ID explicitly contains game type (e.g. "swipe_strike_1")
     if (strpos($id, 'swipe_strike') !== false) $gameSlug = 'swipe-strike';
@@ -57,7 +50,7 @@ function updateBoardHeartbeat($pdo, $id, $stateJson = null) {
         }
     } else {
         // Insert new
-        $initialState = $stateJson ?: json_encode(["state" => "idle", "pattern" => [], "timestamp" => time() * 1000]);
+        $initialState = $stateJson ?: json_encode(["state" => "idle", "pattern" => [], "timestamp" => sprintf('%.0f', microtime(true) * 1000)]);
         
         // Lookup game_id from games table
         $stmtGame = $pdo->prepare("SELECT id FROM games WHERE slug = ?");
@@ -67,34 +60,38 @@ function updateBoardHeartbeat($pdo, $id, $stateJson = null) {
         if ($gameRow) {
             $stmt = $pdo->prepare("INSERT INTO game_boards (board_id, game_id, state_json, last_seen, status) VALUES (?, ?, ?, NOW(), 'online')");
             $stmt->execute([$id, $gameRow['id'], $initialState]);
+        } else {
+            // Failsafe: insert without strict game_id binding so the session lock doesn't silently break
+            $stmt = $pdo->prepare("INSERT INTO game_boards (board_id, state_json, last_seen, status) VALUES (?, ?, NOW(), 'online')");
+            $stmt->execute([$id, $initialState]);
         }
     }
 }
 
 function getBoardState($pdo, $id) {
-    $stmt = $pdo->prepare("SELECT state_json FROM game_boards WHERE board_id = ?");
+    // Fetch both state_json and is_busy status to check for abandoned games
+    $stmt = $pdo->prepare("SELECT state_json, is_busy FROM game_boards WHERE board_id = ?");
     $stmt->execute([$id]);
-    $row = $stmt->fetch();
+    $board = $stmt->fetch();
     
-    if ($row && $row['state_json']) {
-        // AUTO-TIMEOUT LOGIC
-        // If state hasn't changed in > 45 seconds, assume abandoned and reset to idle.
-        // This cleans up stuck sessions from disconnected clients.
-        $state = json_decode($row['state_json'], true);
-        if ($state && isset($state['state']) && $state['state'] !== 'idle') {
-            $lastTime = isset($state['timestamp']) ? $state['timestamp'] : 0;
+    if ($board) {
+        $state = json_decode($board['state_json'], true);
+
+        // AUTO-TIMEOUT LOGIC: If the board is marked as 'busy' but its state 
+        // hasn't been updated in > 45 seconds, assume the user abandoned the game.
+        if ($board['is_busy']) {
+            $lastTime = isset($state['timestamp']) ? (float)$state['timestamp'] : 0;
             
-            // Current Time (ms) - Last Update (ms) > 45000ms
-            if ((time() * 1000) - $lastTime > 45000) {
-                 // Reset to idle
+            if ((microtime(true) * 1000) - $lastTime > 45000) {
+                 // The game is abandoned. Force everything back to available/idle.
                  $idleState = json_encode([
                      "state" => "idle",
                      "pattern" => [],
-                     "timestamp" => time() * 1000
+                     "timestamp" => sprintf('%.0f', microtime(true) * 1000)
                  ]);
                  
-                 // Update board state
-                 $stmt = $pdo->prepare("UPDATE game_boards SET state_json = ? WHERE board_id = ?");
+                 // Update board state and release the busy lock
+                 $stmt = $pdo->prepare("UPDATE game_boards SET state_json = ?, is_busy = FALSE WHERE board_id = ?");
                  $stmt->execute([$idleState, $id]);
                  
                  // Close any hanging session for this board
@@ -104,7 +101,7 @@ function getBoardState($pdo, $id) {
                  return $idleState;
             }
         }
-        return $row['state_json'];
+        return $board['state_json'];
     }
     return null;
 }
@@ -112,18 +109,20 @@ function getBoardState($pdo, $id) {
 // --- MAIN LOGIC ---
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    // ... code ...
-    // Note: This block already has try/catch inside for updateBoardHeartbeat
     try {
         $targetBoard = $boardId ?: 'default';
-        // ...
         $json = file_get_contents('php://input');
-        $data = json_decode($json);
+        $data = json_decode($json, true);
         if ($data === null) {
             http_response_code(400);
             echo json_encode(["error" => "Invalid JSON"]);
             exit;
         }
+
+        // FORCE SERVER TIMESTAMP to prevent client-side clock drift from immediately triggering the 45-second timeout logic
+        // Also ensures a timestamp key *always* exists, which is critical for the ESP32 parser.
+        $data['timestamp'] = sprintf('%.0f', microtime(true) * 1000);
+        $json = json_encode($data);
 
         updateBoardHeartbeat($pdo, $targetBoard, $json);
         echo json_encode(["success" => true, "board" => $targetBoard]);
@@ -162,14 +161,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 gb.board_id as id, 
                 g.slug as game, 
                 gb.last_seen,
-                MAX(CASE WHEN gs.id IS NOT NULL THEN 1 ELSE 0 END) as is_occupied
+                gb.is_busy
             FROM game_boards gb
             LEFT JOIN games g ON gb.game_id = g.id
-            LEFT JOIN game_sessions gs ON gb.board_id = gs.board_id 
-                AND gs.status = 'active' 
-                AND gs.ended_at IS NULL
             WHERE gb.last_seen > NOW() - INTERVAL 5 SECOND
-            GROUP BY gb.board_id, g.slug, gb.last_seen
         ");
         $activeBoards = $stmt->fetchAll();
         
@@ -180,7 +175,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                  'id' => $board['id'],
                  'game' => $board['game'] ?? 'unknown',
                  'last_seen' => strtotime($board['last_seen']),
-                 'is_occupied' => (bool)$board['is_occupied']
+                 'is_occupied' => (bool)$board['is_busy']
              ];
         }
         echo json_encode($result);
@@ -200,7 +195,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 echo json_encode([
                     "state" => "idle",
                     "pattern" => [],
-                    "timestamp" => time() * 1000
+                    "timestamp" => sprintf('%.0f', microtime(true) * 1000)
                 ]);
             }
         } catch (PDOException $e) {

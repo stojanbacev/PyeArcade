@@ -13,7 +13,7 @@
 
 // Game Settings
 String boardId = "neon_recall_2";
-String apiUrlBase = "https://www.pyeclub.com/pyearcade/games/NeonRecall/api.php?board=";
+String apiUrlBase = "https://www.pyeclub.com/pyearcade/api/api.php?board=";
 String fullApiUrl = ""; // Populated in setup
 
 // Create the pixel object

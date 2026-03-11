@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Gamepad2, Info, X, Play, LogOut, Lock, Mail, CircleDollarSign } from 'lucide-react';
+import { Gamepad2, Info, X, Play, LogOut, Lock, Mail, CircleDollarSign, Trophy } from 'lucide-react';
 import NeonRecall from './games/NeonRecall/NeonRecall';
 import SwipeStrike from './games/SwipeStrike/SwipeStrike';
 import AuthPage from './components/AuthPage.jsx';
@@ -43,6 +43,7 @@ export default function App() {
   const [activeBoards, setActiveBoards] = useState([]);
   const [loading, setLoading] = useState(true);
   const [purchaseSummary, setPurchaseSummary] = useState(null);
+  const [leaderboard, setLeaderboard] = useState([]);
 
   // Set a data-attribute on the body to track the current view, avoiding state closure issues.
   React.useEffect(() => {
@@ -113,6 +114,17 @@ export default function App() {
       
       if (statusData.status === 'online') {
         setSelectedGame(game);
+        
+        // Fetch Leaderboard
+        try {
+          const lbResponse = await fetch(`api/api.php?action=get_leaderboard&board_id=${game.boardId}`);
+          const lbData = await lbResponse.json();
+          setLeaderboard(Array.isArray(lbData) ? lbData : []);
+        } catch (e) {
+          console.error("Failed to fetch leaderboard", e);
+          setLeaderboard([]);
+        }
+
         setCurrentView('instructions');
       } else {
         alert("Board is offline or unresponsive! (Last seen > 5s ago)");
@@ -368,7 +380,7 @@ export default function App() {
 
   const renderInstructions = () => (
     <div className="flex flex-col h-screen w-screen bg-gray-900 text-white overflow-hidden p-6 font-sans">
-      <header className="flex justify-between items-center mb-8 pt-4">
+      <header className="flex justify-between items-center mb-4 pt-4">
         <button 
           onClick={() => setCurrentView('home')}
           className="text-gray-400 hover:text-white p-2 rounded-lg bg-gray-800 active:scale-95 transition-all"
@@ -381,18 +393,41 @@ export default function App() {
         <div className="w-10"></div>
       </header>
 
-      <main className="flex-1 flex flex-col justify-center items-center text-center max-w-md mx-auto">
-        <div className="bg-gray-800 p-6 rounded-full mb-6 border border-cyan-500/30 shadow-[0_0_30px_rgba(0,229,255,0.2)]">
-          <Info size={48} className="text-cyan-400" />
-        </div>
-        <h3 className="text-2xl font-bold mb-4">How to Play</h3>
-        <p className="text-gray-300 mb-8 leading-relaxed text-lg">
+      <main className="flex-1 flex flex-col justify-center items-center text-center max-w-md mx-auto overflow-y-auto min-h-0">
+        <h3 className="text-2xl font-bold mb-4 pt-8">How to Play</h3>
+        <p className="text-gray-300 mb-6 leading-relaxed text-lg">
           {selectedGame.description}
         </p>
         <div className="bg-gray-800/50 border border-gray-700 rounded-xl p-4 w-full mb-8">
           <p className="text-sm text-pink-400 font-bold mb-1">PRO TIP:</p>
           <p className="text-sm text-gray-300">Keep your eyes on the physical board to see the sequence!</p>
         </div>
+
+        {leaderboard.length > 0 && (
+          <div className="w-full bg-gray-900/80 border border-yellow-500/30 rounded-2xl p-5 mb-8 shadow-[0_0_20px_rgba(234,179,8,0.15)]">
+            <div className="flex items-center justify-center gap-2 mb-4">
+              <Trophy className="text-yellow-400" size={24} />
+              <h4 className="text-xl font-black text-yellow-400 tracking-wider">TOP SCORES</h4>
+            </div>
+            <div className="flex flex-col gap-3">
+              {leaderboard.map((entry, index) => {
+                const username = entry.email.split('@')[0];
+                return (
+                  <div key={index} className="flex justify-between items-center bg-gray-800/80 rounded-lg px-4 py-2 border border-gray-700/50">
+                    <div className="flex items-center gap-3">
+                      <span className={`font-black ${index === 0 ? 'text-yellow-400 text-lg' : index === 1 ? 'text-gray-300' : 'text-orange-400'}`}>
+                        #{index + 1}
+                      </span>
+                      <span className="text-gray-200 font-medium truncate max-w-[120px] sm:max-w-[150px]">{username}</span>
+                    </div>
+                    <span className="font-black text-cyan-400 text-xl">{entry.high_score}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
       </main>
 
       <footer className="pb-8">

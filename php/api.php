@@ -152,6 +152,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         exit;
     }
 
+    if ($action === 'get_leaderboard') {
+        $targetBoard = isset($_GET['board_id']) ? $_GET['board_id'] : '';
+        if ($targetBoard) {
+            $stmt = $pdo->prepare("
+                SELECT 
+                    u.email, 
+                    gs.score as high_score
+                FROM game_sessions gs
+                JOIN users u ON gs.user_id = u.id
+                WHERE gs.board_id = ? AND gs.status != 'active' AND gs.score > 0
+                ORDER BY high_score DESC
+                LIMIT 3
+            ");
+            $stmt->execute([$targetBoard]);
+            $scores = $stmt->fetchAll();
+            echo json_encode($scores);
+            exit;
+        }
+        echo json_encode([]);
+        exit;
+    }
+
     if ($action === 'list_boards') {
         // Return list of active boards (seen in last 5 seconds)
         // Join with games table to get game slug for frontend compatibility
